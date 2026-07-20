@@ -1,0 +1,43 @@
+# Build output
+**/bin/
+**/obj/
+dist/
+artifacts/
+
+# IDE and user state
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.agents/
+
+# FluxFTP runtime configuration and secrets
+FluxFTP-sites.ini
+FluxFTP-sections.json
+FluxFTP-spreadjobs.json
+FluxFTP-scripts.json
+ioFTP-sites.ini
+ioFTP-sections.json
+ioFTP-spreadjobs.json
+**/settings.json
+**/window-layout.json
+**/queue.json
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Logs and temporary transfer files
+*.log
+*.tmp
+*.part
+*.ioftp-part
+*.fluxftp-part
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>FluxFTP</AssemblyName>
+    <Product>FluxFTP</Product>
+    <Title>FluxFTP</Title>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <RootNamespace>IoFtp.Desktop</RootNamespace>
+    <ApplicationIcon>Assets\ioftp-server.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+    <ProjectReference Include="..\IoFtp.Core\IoFtp.Core.csproj" />
+    <ProjectReference Include="..\IoFtp.Engine\IoFtp.Engine.csproj" />
+  </ItemGroup>
+</Project>

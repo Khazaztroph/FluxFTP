@@ -1,0 +1,38 @@
+using IoFtp.Core.Models;
+
+namespace IoFtp.Desktop.Models;
+
+public sealed record GlobalSettings(
+    string BindAddress = "",
+    int ActivePortFrom = 47500,
+    int ActivePortTo = 47600,
+    bool EnableHttpsApi = false,
+    int HttpsApiPort = 55477,
+    bool ApiLocalhostOnly = true,
+    int PreparedJobExpirationSeconds = 120,
+    int StarterTimeoutSeconds = 300,
+    int MaxTransferRuntimeMinutes = 0,
+    int TransferJobHistory = 100,
+    int TransferHistory = 10000,
+    int LogBufferHistory = 4096,
+    string DefaultUsername = "anonymous",
+    int DefaultSlots = 3,
+    int DefaultUploadSlots = 3,
+    int DefaultDownloadSlots = 2,
+    TransferProtocol DefaultProtocol = TransferProtocol.FtpsExplicit,
+    int DefaultIdleSeconds = 60,
+    string LocalDownloadPath = "",
+    int MaxLocalDownloadSlots = 1,
+    int MaxLocalUploadSlots = 1,
+    string PriorityPatterns = "*.nfo\n*.sfv",
+    string SkipPatterns = "",
+    string ApiPassword = "",
+    bool MinimizeToTray = false,
+    string LegendBarMode = "Compact",
+    ProxyType ProxyType = ProxyType.None,
+    string ProxyHost = "",
+    int ProxyPort = 1080,
+    string ProxyUsername = "",
+    string ProxyPassword = "",
+    bool ProxyDns = true,
+    bool ProxyDataConnections = true);

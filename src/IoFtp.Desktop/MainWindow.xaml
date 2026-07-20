@@ -1,0 +1,181 @@
+<Window x:Class="IoFtp.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FluxFTP" Width="1240" Height="780" MinWidth="900" MinHeight="600"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Background="{StaticResource WindowBrush}">
+        <Border DockPanel.Dock="Top" Background="{StaticResource SurfaceRaisedBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Flux" Foreground="{StaticResource AccentBrush}" FontSize="22" FontWeight="Bold" />
+                    <TextBlock Text="FTP" FontSize="22" FontWeight="SemiBold" Margin="0,0,16,0" />
+                    <Button Content="Site Manager" Click="SiteManager_Click" />
+                    <Button Content="Quick Connect" Click="QuickConnect_Click" />
+                </StackPanel>
+                <TextBlock x:Name="ConnectionStatus" Grid.Column="1" Text="Offline workspace" Foreground="{StaticResource MutedTextBrush}"
+                           VerticalAlignment="Center" HorizontalAlignment="Center" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Content="Transfer Jobs" Click="TransferJobs_Click" />
+                    <Button Content="Metrics" Click="Metrics_Click" />
+                    <Button Content="Scripts" Click="Scripts_Click" />
+                    <Button Content="Sections" Click="Sections_Click" />
+                    <Button Content="Spread Jobs" Click="SpreadJobs_Click" />
+                    <Button x:Name="ToggleQueueButton" Content="Show Queue" Click="ToggleQueue_Click" />
+                    <Button x:Name="ToggleLogButton" Content="Hide Log" Click="ToggleLog_Click" />
+                    <Button Content="Global Settings" Click="GlobalSettings_Click" />
+                    <Button Content="About" Click="About_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <StatusBar x:Name="LegendBar" DockPanel.Dock="Bottom" Height="28">
+            <StatusBarItem><TextBlock x:Name="LegendText" Text="FluxFTP ready" /></StatusBarItem>
+            <StatusBarItem Visibility="Collapsed"><TextBlock x:Name="QueueStatus" Text="0 queued" /></StatusBarItem>
+        </StatusBar>
+
+        <Grid Background="{StaticResource WindowBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="0" x:Name="QueueSplitterRow" />
+                <RowDefinition Height="0" MinHeight="0" x:Name="QueueRow" />
+                <RowDefinition Height="6" x:Name="LogSplitterRow" />
+                <RowDefinition Height="150" MinHeight="70" x:Name="LogRow" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="LeftPaneColumn" Width="*" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition x:Name="RightPaneColumn" Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource SurfaceBrush}" Margin="8,8,3,3"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="7,5,7,1">
+                        <Button DockPanel.Dock="Right" Content="Transfer →" Click="Upload_Click" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Commands" Click="CommandsLeft_Click" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Disconnect" Click="DisconnectLeft_Click" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Connect" Click="ConnectLeft_Click" Padding="10,4"/>
+                        <ComboBox x:Name="LeftQuickSites" DockPanel.Dock="Right" Width="145" Margin="3"
+                                  DisplayMemberPath="Label" SelectionChanged="LeftQuickSites_SelectionChanged"
+                                  DropDownOpened="QuickSites_DropDownOpened" ToolTip="Quick Connect from saved sites"/>
+                        <ComboBox x:Name="LeftMode" SelectionChanged="LeftMode_Changed" Width="105" Margin="3"><ComboBoxItem Content="Local"/><ComboBoxItem Content="Remote" IsSelected="True"/></ComboBox>
+                        <TextBlock x:Name="LeftSiteTitle" Text="REMOTE SITE" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="6,3" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="8,2,8,8">
+                        <Button DockPanel.Dock="Right" Content="Up" Click="LocalUp_Click" Margin="5,0,0,0" Padding="10,4"/>
+                        <TextBox x:Name="LocalPath" Text="/" KeyDown="LocalPath_KeyDown"/>
+                    </DockPanel>
+                    <ListView x:Name="LocalList" Margin="8,0,8,8" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
+                              PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="LocalList_MouseMove"
+                              PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True" Drop="LocalList_Drop">
+                        <ListView.ContextMenu><ContextMenu>
+                            <MenuItem Header="Transfer now →" Click="TransferLeftNow_Click"/><MenuItem Header="Queue transfer →" Click="QueueLeft_Click"/><Separator/>
+                            <MenuItem Header="Create folder..." Click="CreateFolderLeft_Click"/><MenuItem Header="Rename..." Click="RenameLeft_Click"/><MenuItem Header="Delete" Click="DeleteLeft_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodLeft_Click"/><Separator/>
+                            <MenuItem Header="Copy name" Click="CopyNameLeft_Click"/><MenuItem Header="Copy full path" Click="CopyPathLeft_Click"/><MenuItem Header="Commands..." Click="CommandsLeft_Click"/><Separator/><MenuItem Header="Refresh" Click="RefreshLeft_Click" InputGestureText="F5"/>
+                        </ContextMenu></ListView.ContextMenu>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn x:Name="LeftNameColumn" DisplayMemberBinding="{Binding Name}" Width="270"><GridViewColumn.Header><GridViewColumnHeader x:Name="LeftNameHeader" Content="Name" Tag="Name" Click="LeftHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                                <GridViewColumn Header="Size" DisplayMemberBinding="{Binding Size}" Width="90" />
+                                <GridViewColumn DisplayMemberBinding="{Binding Modified}" Width="150"><GridViewColumn.Header><GridViewColumnHeader x:Name="LeftModifiedHeader" Content="Modified" Tag="Modified" Click="LeftHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                                <GridViewColumn Header="Attributes" DisplayMemberBinding="{Binding Attributes}" Width="110" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Row="0" Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="{StaticResource BorderBrush}" />
+
+            <Border Grid.Row="0" Grid.Column="2" Background="{StaticResource SurfaceBrush}" Margin="3,8,8,3"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="7,5,7,1">
+                        <Button DockPanel.Dock="Right" Content="← Transfer" Click="Download_Click" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Commands" Click="CommandsRight_Click" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Disconnect" Click="DisconnectRight_Click" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Connect" Click="ConnectRight_Click" Padding="10,4"/>
+                        <ComboBox x:Name="RightQuickSites" DockPanel.Dock="Right" Width="145" Margin="3"
+                                  DisplayMemberPath="Label" SelectionChanged="RightQuickSites_SelectionChanged"
+                                  DropDownOpened="QuickSites_DropDownOpened" ToolTip="Quick Connect from saved sites"/>
+                        <ComboBox x:Name="RightMode" SelectionChanged="RightMode_Changed" Width="105" Margin="3"><ComboBoxItem Content="Local"/><ComboBoxItem Content="Remote" IsSelected="True"/></ComboBox>
+                        <TextBlock x:Name="RemoteSiteTitle" Text="REMOTE SITE" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="3" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="8,2,8,8">
+                        <Button DockPanel.Dock="Right" Content="Up" Click="RemoteUp_Click" Margin="5,0,0,0" Padding="10,4"/>
+                        <TextBox x:Name="RemotePath" Text="/" KeyDown="RemotePath_KeyDown"/>
+                    </DockPanel>
+                    <ListView x:Name="RemoteList" Margin="8,0,8,8" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"
+                              PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="RemoteList_MouseMove"
+                              PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True" Drop="RemoteList_Drop">
+                        <ListView.ContextMenu><ContextMenu>
+                            <MenuItem Header="← Transfer now" Click="TransferRightNow_Click"/><MenuItem Header="← Queue transfer" Click="QueueRight_Click"/><Separator/>
+                            <MenuItem Header="Create folder..." Click="CreateFolderRight_Click"/><MenuItem Header="Rename..." Click="RenameRight_Click"/><MenuItem Header="Delete" Click="DeleteRight_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodRight_Click"/><Separator/>
+                            <MenuItem Header="Copy name" Click="CopyNameRight_Click"/><MenuItem Header="Copy full path" Click="CopyPathRight_Click"/><MenuItem Header="Commands..." Click="CommandsRight_Click"/><Separator/><MenuItem Header="Refresh" Click="RefreshRight_Click" InputGestureText="F5"/>
+                        </ContextMenu></ListView.ContextMenu>
+                        <ListView.View><GridView>
+                            <GridViewColumn x:Name="RightNameColumn" DisplayMemberBinding="{Binding Name}" Width="270"><GridViewColumn.Header><GridViewColumnHeader x:Name="RightNameHeader" Content="Name" Tag="Name" Click="RightHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                            <GridViewColumn Header="Size" DisplayMemberBinding="{Binding DisplaySize}" Width="90"/>
+                            <GridViewColumn DisplayMemberBinding="{Binding DisplayModified}" Width="150"><GridViewColumn.Header><GridViewColumnHeader x:Name="RightModifiedHeader" Content="Modified" Tag="DisplayModified" Click="RightHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                            <GridViewColumn Header="Attributes" DisplayMemberBinding="{Binding Attributes}" Width="110"/>
+                        </GridView></ListView.View>
+                    </ListView>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter x:Name="QueueSplitter" Grid.Row="1" Grid.ColumnSpan="3" Height="6" VerticalAlignment="Stretch"
+                          Background="{StaticResource BorderBrush}" Visibility="Collapsed" />
+
+            <Border x:Name="QueuePanel" Grid.Row="2" Grid.ColumnSpan="3" Background="{StaticResource SurfaceBrush}" Margin="8,3"
+                    Visibility="Collapsed"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="7,4">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Pause" Click="PauseTransfer_Click" Padding="9,3"/>
+                            <Button Content="Resume" Click="ResumeTransfer_Click" Padding="9,3"/>
+                            <Button Content="Clear finished" Click="ClearFinished_Click" Padding="9,3"/>
+                            <Button Content="Clear all" Click="ClearAll_Click" Padding="9,3"/>
+                        </StackPanel>
+                        <TextBlock Text="TRANSFER QUEUE" FontWeight="SemiBold" Margin="3" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <ListView x:Name="QueueList"
+                              PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                        <ListView.ContextMenu><ContextMenu><MenuItem Header="Remove job" Click="RemoveQueueJob_Click"/></ContextMenu></ListView.ContextMenu>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="State" DisplayMemberBinding="{Binding State}" Width="90" />
+                                <GridViewColumn Header="Name" DisplayMemberBinding="{Binding Name}" Width="280" />
+                                <GridViewColumn Header="Source" DisplayMemberBinding="{Binding Source}" Width="260" />
+                                <GridViewColumn Header="Destination" DisplayMemberBinding="{Binding Destination}" Width="260" />
+                                <GridViewColumn Header="Progress" DisplayMemberBinding="{Binding ProgressText}" Width="140" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter x:Name="LogSplitter" Grid.Row="3" Grid.ColumnSpan="3" Height="6"
+                          VerticalAlignment="Stretch" Background="{StaticResource BorderBrush}" />
+
+            <Border x:Name="LogPanel" Grid.Row="4" Grid.ColumnSpan="3" Background="{StaticResource WindowBrush}" Margin="8,3,8,8"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="CONNECTION LOG" Foreground="{StaticResource MutedTextBrush}" FontWeight="SemiBold" Margin="10,7" />
+                    <TextBox x:Name="LogText" IsReadOnly="True" AcceptsReturn="True" BorderThickness="0"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                             TextWrapping="NoWrap"
+                             FontFamily="Cascadia Mono, Consolas" Text="FluxFTP started&#x0a;No network connections have been opened." />
+                </DockPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>
