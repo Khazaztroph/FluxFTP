@@ -35,4 +35,5 @@ public sealed record GlobalSettings(
     string ProxyUsername = "",
     string ProxyPassword = "",
     bool ProxyDns = true,
-    bool ProxyDataConnections = true);
+    bool ProxyDataConnections = true,
+    bool CheckForUpdatesAtStartup = true);

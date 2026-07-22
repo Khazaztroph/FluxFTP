@@ -57,11 +57,13 @@ public partial class MainWindow : Window
     private readonly System.Windows.Forms.NotifyIcon _trayIcon = new();
     private readonly System.Windows.Threading.DispatcherTimer _legendTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly ExternalScriptRunner _scriptRunner = new();
+    private readonly UpdateCheckService _updateCheckService = new();
     private int _legendOffset;
     public MainWindow()
     {
         InitializeComponent();
         _settings = _settingsStore.Load();
+        LogText.Text = $"FluxFTP {UpdateCheckService.CurrentVersion} started.{Environment.NewLine}No network connections have been opened.";
         _engine = new GlobalTransferEngine(new DesktopTransferExecutor(this));
         _engine.ConfigureLocalSlots(_settings.MaxLocalDownloadSlots, _settings.MaxLocalUploadSlots);
         _engine.StateChanged += Engine_StateChanged;
@@ -71,7 +73,7 @@ public partial class MainWindow : Window
         LoadQueue();
         if (!string.IsNullOrWhiteSpace(_settings.LocalDownloadPath) && Directory.Exists(_settings.LocalDownloadPath)) _localDirectory = _settings.LocalDownloadPath;
         if (LeftMode.SelectedIndex == 0) LoadLocalDirectory(_localDirectory);
-        Loaded += async (_, _) => { RestoreWindowLayout(); await RestartApiServerAsync(); };
+        Loaded += async (_, _) => { RestoreWindowLayout(); await RestartApiServerAsync(); if (_settings.CheckForUpdatesAtStartup) await CheckForUpdatesAsync(); };
         ConfigureTrayIcon();
         StateChanged += MainWindow_StateChanged;
         _legendTimer.Tick += (_, _) => UpdateLegendBar();
@@ -1305,6 +1307,18 @@ public partial class MainWindow : Window
             LogText.AppendText($"{Environment.NewLine}Global settings updated.");
             await RestartApiServerAsync();
         }
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        var result = await _updateCheckService.CheckAsync();
+        var status = result.Error is not null && string.IsNullOrEmpty(result.LatestVersion)
+            ? $"Update status: Could not check ({result.Error})."
+            : result.UpdateAvailable
+                ? $"Update available: FluxFTP {result.LatestVersion} — {result.ReleaseUrl}"
+                : $"Update status: Latest version ({result.CurrentVersion}).";
+        LogText.AppendText($"{Environment.NewLine}{status}");
+        LogText.ScrollToEnd();
     }
 
     private void ConfigureTrayIcon()

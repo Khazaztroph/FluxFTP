@@ -173,7 +173,7 @@
                     <TextBox x:Name="LogText" IsReadOnly="True" AcceptsReturn="True" BorderThickness="0"
                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                              TextWrapping="NoWrap"
-                             FontFamily="Cascadia Mono, Consolas" Text="FluxFTP started&#x0a;No network connections have been opened." />
+                             FontFamily="Cascadia Mono, Consolas" />
                 </DockPanel>
             </Border>
         </Grid>

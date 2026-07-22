@@ -2,6 +2,7 @@ using System.Windows;
 using IoFtp.Core.Models;
 using IoFtp.Desktop.Models;
 using IoFtp.Core.Transport;
+using IoFtp.Desktop.Services;
 
 namespace IoFtp.Desktop;
 
@@ -21,6 +22,8 @@ public partial class GlobalSettingsWindow : Window
         MinimizeToTrayBox.IsChecked=s.MinimizeToTray;
         LegendModeBox.SelectedItem=s.LegendBarMode; if (LegendModeBox.SelectedIndex < 0) LegendModeBox.SelectedItem="Compact";
         ProxyTypeBox.SelectedItem=s.ProxyType; ProxyHostBox.Text=s.ProxyHost; ProxyPortBox.Text=$"{s.ProxyPort}"; ProxyUsernameBox.Text=s.ProxyUsername; ProxyPasswordBox.Password=s.ProxyPassword; ProxyDnsBox.IsChecked=s.ProxyDns; ProxyDataBox.IsChecked=s.ProxyDataConnections;
+        CheckUpdatesBox.IsChecked=s.CheckForUpdatesAtStartup;
+        UpdateStatusText.Text=$"Installed version: {UpdateCheckService.CurrentVersion}";
     }
     private void Save_Click(object sender, RoutedEventArgs e)
     {
@@ -30,7 +33,7 @@ public partial class GlobalSettingsWindow : Window
         if (N(PortFromBox) is <1 or >65535 || N(PortToBox)<N(PortFromBox) || N(SlotsBox)<1 || N(UploadsBox)<0 || N(DownloadsBox)<0 || N(UploadsBox)>N(SlotsBox) || N(DownloadsBox)>N(SlotsBox)) { ErrorText.Text="Port range or slot limits are invalid."; return; }
         if (ApiEnabledBox.IsChecked == true && string.IsNullOrWhiteSpace(ApiPasswordBox.Password)) { ErrorText.Text="API password is required when the API is enabled."; return; }
         if ((ProxyType)(ProxyTypeBox.SelectedItem ?? ProxyType.None) != ProxyType.None && (string.IsNullOrWhiteSpace(ProxyHostBox.Text) || N(ProxyPortBox) is < 1 or > 65535)) { ErrorText.Text="Proxy host or port is invalid."; return; }
-        Settings = new(BindBox.Text.Trim(),N(PortFromBox),N(PortToBox),ApiEnabledBox.IsChecked==true,N(ApiPortBox),ApiLocalBox.IsChecked==true,N(ExpirationBox),N(StarterBox),N(RuntimeBox),N(JobHistoryBox),N(TransferHistoryBox),N(LogHistoryBox),UsernameBox.Text.Trim(),N(SlotsBox),N(UploadsBox),N(DownloadsBox),(TransferProtocol)ProtocolBox.SelectedItem,N(DefaultIdleBox),LocalPathBox.Text.Trim(),N(LocalDownloadsBox),N(LocalUploadsBox),PriorityPatternsBox.Text.Trim(),SkipPatternsBox.Text.Trim(),ApiPasswordBox.Password,MinimizeToTrayBox.IsChecked==true,LegendModeBox.SelectedItem?.ToString() ?? "Compact",(ProxyType)(ProxyTypeBox.SelectedItem ?? ProxyType.None),ProxyHostBox.Text.Trim(),N(ProxyPortBox),ProxyUsernameBox.Text.Trim(),ProxyPasswordBox.Password,ProxyDnsBox.IsChecked==true,ProxyDataBox.IsChecked==true); DialogResult=true;
+        Settings = new(BindBox.Text.Trim(),N(PortFromBox),N(PortToBox),ApiEnabledBox.IsChecked==true,N(ApiPortBox),ApiLocalBox.IsChecked==true,N(ExpirationBox),N(StarterBox),N(RuntimeBox),N(JobHistoryBox),N(TransferHistoryBox),N(LogHistoryBox),UsernameBox.Text.Trim(),N(SlotsBox),N(UploadsBox),N(DownloadsBox),(TransferProtocol)ProtocolBox.SelectedItem,N(DefaultIdleBox),LocalPathBox.Text.Trim(),N(LocalDownloadsBox),N(LocalUploadsBox),PriorityPatternsBox.Text.Trim(),SkipPatternsBox.Text.Trim(),ApiPasswordBox.Password,MinimizeToTrayBox.IsChecked==true,LegendModeBox.SelectedItem?.ToString() ?? "Compact",(ProxyType)(ProxyTypeBox.SelectedItem ?? ProxyType.None),ProxyHostBox.Text.Trim(),N(ProxyPortBox),ProxyUsernameBox.Text.Trim(),ProxyPasswordBox.Password,ProxyDnsBox.IsChecked==true,ProxyDataBox.IsChecked==true,CheckUpdatesBox.IsChecked==true); DialogResult=true;
     }
     private async void TestProxy_Click(object sender, RoutedEventArgs e)
     {
@@ -39,5 +42,15 @@ public partial class GlobalSettingsWindow : Window
         if (proxy.Type == ProxyType.None) { ErrorText.Text="Select a proxy type first."; return; }
         try { using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)); using var client = await ProxyConnector.ConnectAsync("example.com", 443, proxy, timeout.Token); ErrorText.Text="Proxy test succeeded."; }
         catch (Exception exception) { ErrorText.Text=$"Proxy test failed: {exception.Message}"; }
+    }
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateStatusText.Text="Checking GitHub Releases…";
+        var result = await new UpdateCheckService().CheckAsync(true);
+        UpdateStatusText.Text = result.Error is not null && string.IsNullOrEmpty(result.LatestVersion)
+            ? $"Update check failed: {result.Error}"
+            : result.UpdateAvailable
+                ? $"Update available: FluxFTP {result.LatestVersion}\n{result.ReleaseUrl}"
+                : $"Latest version installed ({result.CurrentVersion}).";
     }
 }
