@@ -25,15 +25,16 @@ public partial class CommandsWindow : Window
         _presets =
         [
             new("ioFTPD / PRE selected release", ["SITE PRE %d[Pre Type: ie. mp3, divx] %f", "LIST"]),
-            new("ioFTPD / TAGLINE", ["SITE TAGLINE %d[New Tagline:]"]),
-            new("ioFTPD / Show NFO", ["&window", "SITE NFO"]),
-            new("ioFTPD / Who is online", ["SITE WHO"]),
-            new("ioFTPD / Site rules", ["SITE RULES"]),
+            new("ioFTPD/glFTPD / TAGLINE", ["SITE TAGLINE %d[New Tagline:]"]),
+            new("ioFTPD/glFTPD / Show NFO", ["&window", "SITE NFO"]),
+            new("ioFTPD/glFTPD / Who is online", ["SITE WHO"]),
+            new("ioFTPD/glFTPD / Site rules", ["SITE RULES"]),
             new("ioFTPD / Requests", ["SITE REQUESTS"]),
-            new("ioFTPD / Search", ["SITE SEARCH %d[Search text:]"]),
-            new("ioFTPD / Nukes", ["SITE NUKES"]),
-            new("ioFTPD / Latest uploads", ["SITE NEW"]),
-            new("ioFTPD / SITE HELP", ["SITE HELP"]),
+            new("ioFTPD/glFTPD / Search", ["SITE SEARCH %d[Search text:]"]),
+            new("ioFTPD/glFTPD / Nukes", ["SITE NUKES"]),
+            new("ioFTPD/glFTPD / Latest uploads", ["SITE NEW"]),
+            new("ioFTPD/glFTPD / SITE HELP", ["SITE HELP"]),
+            .. CreateGlFtpdPresets(),
             new("Raw command", [""])
         ];
         PresetBox.ItemsSource = _presets; PresetBox.SelectedIndex = 0;
@@ -135,6 +136,115 @@ public partial class CommandsWindow : Window
     {
         var verb = command.Trim().Split(' ', 2)[0];
         return verb.Equals("PASS", StringComparison.OrdinalIgnoreCase) ? "PASS ********" : command;
+    }
+
+    private static IEnumerable<CommandPreset> CreateGlFtpdPresets()
+    {
+        // Shared ioFTPD/glFTPD commands are declared above. Keep this list to
+        // glFTPD-only commands so the preset menu never contains duplicates.
+        (string Name, string Command)[] commands =
+        [
+            ("Files / DUPE search", "SITE DUPE %d[Search text:]"),
+            ("Files / FDUPE search", "SITE FDUPE %d[Search text:]"),
+            ("Files / CHMOD", "SITE CHMOD %d[Mode, e.g. 755:] %f"),
+            ("Files / LOCATE", "SITE LOCATE %d[Filename:]") ,
+            ("Files / NUKE selected", "SITE NUKE %f %d[Multiplier:] %d[Reason:]") ,
+            ("Files / UNNUKE selected", "SITE UNNUKE %f %d[Message:]") ,
+            ("Files / Recent unnukes", "SITE UNNUKES"),
+            ("Files / REQUEST", "SITE REQUEST %d[Request or blank to list:]") ,
+            ("Files / REQFILLED", "SITE REQFILLED %d[Request number:]") ,
+            ("Files / UNDUPE", "SITE UNDUPE %d[Filename:]") ,
+            ("Files / PREDUPE", "SITE PREDUPE %d[Filename:]") ,
+            ("Files / WIPE selected", "SITE WIPE -r %f"),
+            ("Files / XDUPE mode", "SITE XDUPE %d[Mode:]") ,
+
+            ("Groups / CHGADMIN", "SITE CHGADMIN %d[User:] %d[Group:]") ,
+            ("Groups / CHGRP", "SITE CHGRP %d[User:] %d[Group:]") ,
+            ("Groups / GADDUSER", "SITE GADDUSER %d[Group:] %d[User:] %d[Password:]") ,
+            ("Groups / GINFO", "SITE GINFO %d[Group:]") ,
+            ("Groups / My groups", "SITE GROUP"),
+            ("Groups / Join or leave group", "SITE GROUP %d[Group:]") ,
+            ("Groups / Available groups", "SITE GROUPS"),
+            ("Groups / Group info", "SITE GRP %d[Group:]") ,
+            ("Groups / GRPCHANGE help", "SITE GRPCHANGE"),
+            ("Groups / Add group", "SITE GRPADD %d[Group:] %d[Description:]") ,
+            ("Groups / Delete group", "SITE GRPDEL %d[Group:]") ,
+            ("Groups / Rename group", "SITE GRPREN %d[Old group:] %d[New group:]") ,
+            ("Groups / Group description", "SITE GRPNFO %d[Group:] %d[Description:]") ,
+
+            ("Users / Add user", "SITE ADDUSER %d[User:] %d[Password:]") ,
+            ("Users / Add IP", "SITE ADDIP %d[User:] %d[ident@ip:]") ,
+            ("Users / CHANGE help", "SITE CHANGE"),
+            ("Users / Change password", "SITE CHPASS %d[User:] %d[New password:]") ,
+            ("Users / Change own password", "SITE PASSWD %d[New password:]") ,
+            ("Users / Delete IP", "SITE DELIP %d[User:] %d[ident@ip:]") ,
+            ("Users / Delete user", "SITE DELUSER %d[User:]") ,
+            ("Users / Emulate user", "SITE EMULATE %d[User:]") ,
+            ("Users / My flags", "SITE FLAGS"),
+            ("Users / User flags", "SITE FLAGS %d[User:]") ,
+            ("Users / Give credits", "SITE GIVE %d[User:] %d[Amount, e.g. 100M:] %d[Message:]") ,
+            ("Users / Take credits", "SITE TAKE %d[User:] %d[Amount, e.g. 100M:] %d[Message:]") ,
+            ("Users / Kick user", "SITE KICK %d[User:]") ,
+            ("Users / Kill PID", "SITE KILL %d[PID:]") ,
+            ("Users / Purge deleted", "SITE PURGE %d[User or blank for all:]") ,
+            ("Users / Re-add user", "SITE READD %d[User or blank to list:]") ,
+            ("Users / Rename user", "SITE RENUSER %d[Old user:] %d[New user:]") ,
+            ("Users / Raw userfile", "SITE SHOW %d[User:]") ,
+            ("Users / User details", "SITE USER %d[User or blank:]") ,
+            ("Users / List users", "SITE USERS"),
+            ("Users / Last on", "SITE LASTON %d[Options or blank:]") ,
+            ("Users / Seen", "SITE SEEN %d[User:]") ,
+            ("Users / Detailed online users", "SITE SWHO"),
+
+            ("Logs / Error log", "SITE ERRLOG %d[Number/search or blank:]") ,
+            ("Logs / Failed logins", "SITE LOGINS %d[Number/search or blank:]") ,
+            ("Logs / Request log", "SITE REQLOG %d[Number/search or blank:]") ,
+            ("Logs / Sysop log", "SITE SYSLOG %d[Number/search or blank:]") ,
+            ("Logs / Update dirlog", "SITE UPDATE %d[Directory string:]") ,
+
+            ("Stats / All-time downloads", "SITE ALDN %d[Options or blank:]") ,
+            ("Stats / All-time uploads", "SITE ALUP %d[Options or blank:]") ,
+            ("Stats / Daily downloads", "SITE DAYDN %d[Options or blank:]") ,
+            ("Stats / Daily uploads", "SITE DAYUP %d[Options or blank:]") ,
+            ("Stats / Monthly downloads", "SITE MONTHDN %d[Options or blank:]") ,
+            ("Stats / Monthly uploads", "SITE MONTHUP %d[Options or blank:]") ,
+            ("Stats / Nuke top", "SITE NUKETOP %d[Options or blank:]") ,
+            ("Stats / Weekly downloads", "SITE WKDN %d[Options or blank:]") ,
+            ("Stats / Weekly uploads", "SITE WKUP %d[Options or blank:]") ,
+            ("Stats / All-time group uploads", "SITE GPAL %d[Options or blank:]") ,
+            ("Stats / Monthly group uploads", "SITE GPMONTHUP %d[Options or blank:]") ,
+            ("Stats / Monthly group downloads", "SITE GPMONTHDN %d[Options or blank:]") ,
+            ("Stats / Weekly group uploads", "SITE GPWK %d[Options or blank:]") ,
+            ("Stats / Weekly group downloads", "SITE GPWD %d[Options or blank:]") ,
+            ("Stats / All-time group downloads", "SITE GPAD %d[Options or blank:]") ,
+            ("Stats / User statistics", "SITE STATS %d[User or blank:]") ,
+            ("Stats / Total traffic", "SITE TRAFFIC"),
+
+            ("Misc / Aliases", "SITE ALIAS"),
+            ("Misc / CD paths", "SITE CDPATH"),
+            ("Misc / Colors", "SITE COLOR %d[on, off or show:]") ,
+            ("Misc / Idle settings", "SITE IDLE %d[Seconds or blank:]") ,
+            ("Misc / Message variables", "SITE MSG"),
+            ("Misc / Oneliner", "SITE ONEL %d[Text or blank to show:]") ,
+            ("Misc / Status", "SITE STAT"),
+            ("Misc / Server time", "SITE TIME"),
+            ("Misc / glFTPD version", "SITE VERS"),
+            ("Misc / Welcome screen", "SITE WELCOME"),
+
+            ("pzs-ng / Invite", "SITE INVITE"),
+            ("pzs-ng / Rescan selected", "SITE RESCAN"),
+            ("pzs-ng / Audio sort", "SITE AUDIOSORT"),
+            ("Custom / NFOVIEW", "SITE NFOVIEW"),
+            ("Custom / NFOX", "SITE NFOX"),
+            ("Custom / RAR details", "SITE RARDTL"),
+            ("Custom / RAR test", "SITE RARTEST"),
+            ("Custom / RESCAN2", "SITE RESCAN2"),
+            ("Custom / ZIP check", "SITE ZIPCHK"),
+            ("Custom / ZIP list", "SITE ZIPLIST"),
+            ("Custom / Unzip", "SITE UNZIP")
+        ];
+
+        return commands.Select(item => new CommandPreset($"glFTPD / {item.Name}", [item.Command]));
     }
     private sealed record CommandPreset(string Name, IReadOnlyList<string> Commands, bool Imported = false) { public override string ToString() => Name; }
 }

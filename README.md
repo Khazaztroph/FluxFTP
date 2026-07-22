@@ -59,6 +59,11 @@ stop the application; an additional warning is shown while the HTTPS/JSON API is
 
 Saved sites may contain multiple addresses or FTP bouncers in the **Address(es)** field, separated by spaces. FluxFTP tries the first address immediately and starts the remaining attempts after one second. The first successful address is promoted to the front of the saved list for future connections.
 
+Site Manager can import saved sites from FTPRush 3 `site.json`, legacy FTPRush
+`RushSite.xml`, and FlashFXP `Sites.ftp` XML exports. A preview lets you select
+profiles and leaves detected duplicates unchecked. Imported passwords are saved
+using the same Windows DPAPI protection as manually created FluxFTP profiles.
+
 ## Currently supported FTP commands
 
 FluxFTP sends the following commands automatically when required by browsing, transfers and connection setup:
@@ -74,8 +79,10 @@ FluxFTP sends the following commands automatically when required by browsing, tr
 
 The Commands window currently includes presets for:
 
-- `SITE PRE`, `SITE TAGLINE`, `SITE NFO`, `SITE WHO` and `SITE RULES`
-- `SITE REQUESTS`, `SITE SEARCH`, `SITE NUKES`, `SITE NEW` and `SITE HELP`
+- Common ioFTPD/glFTPD commands including `SITE TAGLINE`, `SITE NFO`, `SITE WHO`, `SITE RULES`, `SITE SEARCH`, `SITE NUKES`, `SITE NEW` and `SITE HELP`
+- ioFTPD commands including `SITE PRE` and `SITE REQUESTS`
+- glFTPD file, group, user, log, statistics and miscellaneous administration commands
+- Optional pzs-ng and custom glFTPD commands, clearly identified in the preset name
 - `SITE ioGuiExt who` is used internally for ioFTPD FXP speed monitoring
 
 **Load SITE HELP** can add commands advertised by the connected server. FTPRush `RushCmd.xml` command packs can also be imported. The raw-command field accepts one FTP command at a time; credential commands `USER`, `PASS` and `ACCT` are blocked there to avoid exposing or replacing the active login.
