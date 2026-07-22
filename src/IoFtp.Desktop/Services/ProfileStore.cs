@@ -92,7 +92,7 @@ internal sealed class ProfileStore
                 Get(values, "BlockTransfersFrom"), Get(values, "BlockTransfersTo"), Bool(values, "SecureFileListings", true), Bool(values, "NeedsPret"), Bool(values, "CeprSupported"), Bool(values, "UseXdupe"));
             result.Add(new ConnectionProfile(id, Get(values, "Name", "Site"), Get(values, "Host"), Int(values, "Port", 21),
                 Get(values, "Username"), EnumValue(values, "Protocol", TransferProtocol.Ftp), Unprotect(Get(values, "Password")),
-                Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.StatThenList), options,
+                Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.Auto), options,
                 AlternateAddresses: Get(values, "AlternateAddresses")));
         }
 

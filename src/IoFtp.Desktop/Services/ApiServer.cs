@@ -202,7 +202,7 @@ internal sealed class ApiServer : IAsyncDisposable
         sites = section.SitePaths.Select(pair => new { site = pair.Key, path = pair.Value }) };
     private static object ToApiSite(ConnectionProfile profile) => new { name = profile.Name, addresses = profile.EffectiveAddresses.Select(address => address.ToString()).ToArray(), user = profile.Username,
         base_path = profile.EffectiveOptions.BasePath, tls_mode = profile.Protocol == TransferProtocol.FtpsImplicit ? "IMPLICIT" : profile.Protocol == TransferProtocol.FtpsExplicit ? "AUTH_TLS" : "NONE",
-        list_command = profile.ListingMode == DirectoryListingMode.ListOnly ? "LIST" : "STAT_L", max_logins = profile.EffectiveOptions.MaxSlots,
+        list_command = profile.ListingMode switch { DirectoryListingMode.Auto => "AUTO", DirectoryListingMode.ListOnly => "LIST", _ => "STAT_L" }, max_logins = profile.EffectiveOptions.MaxSlots,
         max_sim_up = profile.EffectiveOptions.MaxUploadSlots, max_sim_down = profile.EffectiveOptions.MaxDownloadSlots,
         priority = profile.EffectiveOptions.Priority, needs_pret = profile.EffectiveOptions.NeedsPret,
         cepr_supported = profile.EffectiveOptions.CeprSupported, use_xdupe = profile.EffectiveOptions.UseXdupe };
@@ -215,7 +215,7 @@ internal sealed class ApiServer : IAsyncDisposable
             request.Priority ?? 0, BasePath: request.BasePath ?? "/", NeedsPret: request.NeedsPret ?? false, CeprSupported: request.CeprSupported ?? false,
             UseXdupe: request.UseXdupe ?? false);
         return new(Guid.NewGuid(), request.Name!, primary.Host, primary.Port, request.User ?? "anonymous", protocol,
-            request.Password ?? "", ListingMode: request.ListCommand?.Equals("LIST", StringComparison.OrdinalIgnoreCase) == true ? DirectoryListingMode.ListOnly : DirectoryListingMode.StatThenList,
+            request.Password ?? "", ListingMode: ParseListingMode(request.ListCommand),
             Options: options, AlternateAddresses: string.Join(' ', alternates));
     }
     private static ConnectionProfile PatchProfile(ConnectionProfile profile, SiteRequest request)
@@ -234,11 +234,17 @@ internal sealed class ApiServer : IAsyncDisposable
             UseXdupe = request.UseXdupe ?? profile.EffectiveOptions.UseXdupe };
         return profile with { Name = request.Name ?? profile.Name, Host = host, Port = port, AlternateAddresses = alternateAddresses, Username = request.User ?? profile.Username,
             Password = request.Password ?? profile.Password, Protocol = request.TlsMode is null ? profile.Protocol : ParseTls(request.TlsMode),
-            ListingMode = request.ListCommand is null ? profile.ListingMode : request.ListCommand.Equals("LIST", StringComparison.OrdinalIgnoreCase) ? DirectoryListingMode.ListOnly : DirectoryListingMode.StatThenList, Options = options };
+            ListingMode = request.ListCommand is null ? profile.ListingMode : ParseListingMode(request.ListCommand), Options = options };
     }
     private static void ParseAddress(string address, out string host, out int? port)
     { var separator = address.LastIndexOf(':'); if (separator > 0 && int.TryParse(address[(separator + 1)..], out var parsed)) { host = address[..separator]; port = parsed; } else { host = address; port = null; } }
     private static TransferProtocol ParseTls(string? value) => value?.ToUpperInvariant() switch { "IMPLICIT" => TransferProtocol.FtpsImplicit, "NONE" => TransferProtocol.Ftp, _ => TransferProtocol.FtpsExplicit };
+    private static DirectoryListingMode ParseListingMode(string? value) => value?.ToUpperInvariant() switch
+    {
+        "LIST" => DirectoryListingMode.ListOnly,
+        "STAT_L" or "STAT-L" => DirectoryListingMode.StatThenList,
+        _ => DirectoryListingMode.Auto
+    };
 
     private static X509Certificate2 LoadOrCreateCertificate()
     {

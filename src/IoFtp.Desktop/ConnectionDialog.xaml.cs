@@ -20,9 +20,10 @@ public partial class ConnectionDialog : Window
         ProtocolBox.ItemsSource = Enum.GetValues<TransferProtocol>().Select(protocol => new ProtocolChoice(protocol)).ToArray();
         ListingModeBox.ItemsSource = new[]
         {
+            new ListingModeOption(DirectoryListingMode.Auto, "Auto (MLSD, LIST, STAT -l)"),
+            new ListingModeOption(DirectoryListingMode.ListOnly, "LIST only"),
             new ListingModeOption(DirectoryListingMode.StatThenList, "STAT -l, then LIST"),
             new ListingModeOption(DirectoryListingMode.StatOnly, "STAT -l only"),
-            new ListingModeOption(DirectoryListingMode.ListOnly, "LIST only")
         };
         _id = profile?.Id ?? Guid.NewGuid();
         _options = profile?.Options;
