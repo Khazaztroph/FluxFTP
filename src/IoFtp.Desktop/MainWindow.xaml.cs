@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     private readonly System.Windows.Threading.DispatcherTimer _legendTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly ExternalScriptRunner _scriptRunner = new();
     private readonly UpdateCheckService _updateCheckService = new();
+    private bool _exitRequested;
     private int _legendOffset;
     public MainWindow()
     {
@@ -1204,6 +1205,23 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!_exitRequested && _settings.MinimizeToTray)
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+        if (!_exitRequested && !ConfirmExit())
+        {
+            e.Cancel = true;
+            return;
+        }
+        _exitRequested = true;
+        base.OnClosing(e);
+    }
+
     private void RestoreWindowLayout()
     {
         var layout = _layoutStore.Load();
@@ -1394,7 +1412,7 @@ public partial class MainWindow : Window
         {
             var menu = new System.Windows.Forms.ContextMenuStrip();
             menu.Items.Add("Open FluxFTP", null, (_, _) => Dispatcher.Invoke(RestoreFromTray));
-            menu.Items.Add("Exit", null, (_, _) => Dispatcher.Invoke(Close));
+            menu.Items.Add("Exit FluxFTP", null, (_, _) => Dispatcher.Invoke(RequestExit));
             _trayIcon.ContextMenuStrip = menu;
             _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(RestoreFromTray);
         }
@@ -1403,8 +1421,28 @@ public partial class MainWindow : Window
     private void MainWindow_StateChanged(object? sender, EventArgs e)
     {
         if (WindowState != WindowState.Minimized || !_settings.MinimizeToTray) return;
+        HideToTray();
+    }
+
+    private void HideToTray()
+    {
         ShowInTaskbar = false;
         Hide();
+    }
+
+    private void RequestExit()
+    {
+        if (!ConfirmExit()) return;
+        _exitRequested = true;
+        Close();
+    }
+
+    private bool ConfirmExit()
+    {
+        if (!_settings.EnableHttpsApi) return true;
+        return MessageBox.Show(
+            "The HTTPS/JSON API is active. Exiting FluxFTP will stop API automation and disconnect clients.\n\nExit FluxFTP?",
+            "Exit FluxFTP", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
     }
 
     private void RestoreFromTray()

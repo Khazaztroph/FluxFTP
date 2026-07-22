@@ -39,6 +39,10 @@ Remote folders can be downloaded recursively to either Local pane. FluxFTP creat
 the local directory tree and queues each file through the configured reusable
 download slots while applying the Skiplist and Priority List.
 
+FluxFTP can minimize and close to the Windows system tray so transfers and API
+automation continue in the background. Use **Exit FluxFTP** from the tray menu to
+stop the application; an additional warning is shown while the HTTPS/JSON API is active.
+
 Saved sites may contain multiple addresses or FTP bouncers in the **Address(es)** field, separated by spaces. FluxFTP tries the first address immediately and starts the remaining attempts after one second. The first successful address is promoted to the front of the saved list for future connections.
 
 ## Currently supported FTP commands
