@@ -20,8 +20,8 @@
         <ListView x:Name="JobsList" FontFamily="Cascadia Mono, Consolas" PreviewMouseRightButtonDown="JobsList_PreviewMouseRightButtonDown">
             <ListView.ContextMenu><ContextMenu><MenuItem Header="Remove job" Click="RemoveJob_Click"/></ContextMenu></ListView.ContextMenu>
             <ListView.View><GridView>
-                <GridViewColumn Header="QUEUED" DisplayMemberBinding="{Binding Queued}" Width="75"/>
-                <GridViewColumn Header="STARTED" DisplayMemberBinding="{Binding Started}" Width="75"/>
+                <GridViewColumn Header="QUEUED" DisplayMemberBinding="{Binding Queued}" Width="145"/>
+                <GridViewColumn Header="STARTED" DisplayMemberBinding="{Binding Started}" Width="145"/>
                 <GridViewColumn Header="USE" DisplayMemberBinding="{Binding Use}" Width="55"/>
                 <GridViewColumn Header="TYPE" DisplayMemberBinding="{Binding Type}" Width="70"/>
                 <GridViewColumn Header="NAME" DisplayMemberBinding="{Binding Name}" Width="190"/>
@@ -30,7 +30,11 @@
                 <GridViewColumn Header="FILES" DisplayMemberBinding="{Binding Files}" Width="55"/>
                 <GridViewColumn Header="LEFT" DisplayMemberBinding="{Binding Left}" Width="85"/>
                 <GridViewColumn Header="SPEED" DisplayMemberBinding="{Binding Speed}" Width="80"/>
-                <GridViewColumn Header="DONE" DisplayMemberBinding="{Binding Done}" Width="65"/>
+                <GridViewColumn Header="DONE" Width="150"><GridViewColumn.CellTemplate><DataTemplate>
+                    <Grid Margin="2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent}" Height="16" Background="{StaticResource WindowBrush}" Foreground="{StaticResource AccentBrush}"/>
+                        <TextBlock Text="{Binding Done}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
+                    </Grid>
+                </DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
             </GridView></ListView.View>
         </ListView>
     </DockPanel>

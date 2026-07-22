@@ -30,6 +30,11 @@ dotnet run --project .\src\IoFtp.Desktop\IoFtp.Desktop.csproj
 FluxFTP supports FTP/FTPS connections, dual remote sessions, resumable transfers,
 and secure FXP with automatic client-relay fallback.
 
+Transfer Queue and Transfer Jobs provide graphical per-file progress bars, queued
+and started timestamps, live speed information, and an aggregate activity bar in
+the main status area. FluxFTP can also check GitHub Releases for updates at startup
+or manually from Global Settings.
+
 Saved sites may contain multiple addresses or FTP bouncers in the **Address(es)** field, separated by spaces. FluxFTP tries the first address immediately and starts the remaining attempts after one second. The first successful address is promoted to the front of the saved list for future connections.
 
 ## Currently supported FTP commands

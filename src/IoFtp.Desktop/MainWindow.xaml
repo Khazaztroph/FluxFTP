@@ -34,9 +34,15 @@
             </Grid>
         </Border>
 
-        <StatusBar x:Name="LegendBar" DockPanel.Dock="Bottom" Height="28">
-            <StatusBarItem><TextBlock x:Name="LegendText" Text="FluxFTP ready" /></StatusBarItem>
-            <StatusBarItem Visibility="Collapsed"><TextBlock x:Name="QueueStatus" Text="0 queued" /></StatusBarItem>
+        <StatusBar x:Name="LegendBar" DockPanel.Dock="Bottom" Height="30">
+            <Grid Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StatusBar}}">
+                <TextBlock x:Name="LegendText" Text="FluxFTP ready" VerticalAlignment="Center" Margin="5,0,310,0"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,12,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="StatusProgressText" Text="Idle" Width="100" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ProgressBar x:Name="StatusProgressBar" Width="190" Height="15" Minimum="0" Maximum="100" Background="{StaticResource WindowBrush}" Foreground="{StaticResource AccentBrush}"/>
+                </StackPanel>
+                <TextBlock x:Name="QueueStatus" Text="0 queued" Visibility="Collapsed"/>
+            </Grid>
         </StatusBar>
 
         <Grid Background="{StaticResource WindowBrush}">
@@ -156,7 +162,11 @@
                                 <GridViewColumn Header="Name" DisplayMemberBinding="{Binding Name}" Width="280" />
                                 <GridViewColumn Header="Source" DisplayMemberBinding="{Binding Source}" Width="260" />
                                 <GridViewColumn Header="Destination" DisplayMemberBinding="{Binding Destination}" Width="260" />
-                                <GridViewColumn Header="Progress" DisplayMemberBinding="{Binding ProgressText}" Width="140" />
+                                <GridViewColumn Header="Progress" Width="230"><GridViewColumn.CellTemplate><DataTemplate>
+                                    <Grid Margin="3,2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent}" Height="18" Background="{StaticResource WindowBrush}" Foreground="{StaticResource AccentBrush}"/>
+                                        <TextBlock Text="{Binding ProgressDisplay}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
+                                    </Grid>
+                                </DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
                             </GridView>
                         </ListView.View>
                     </ListView>

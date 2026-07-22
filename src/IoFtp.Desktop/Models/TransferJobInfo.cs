@@ -13,4 +13,5 @@ internal sealed record TransferJobInfo(
     string Left,
     string Speed,
     string Done,
-    string State);
+    string State,
+    double ProgressPercent);

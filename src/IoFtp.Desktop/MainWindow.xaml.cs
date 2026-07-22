@@ -702,7 +702,7 @@ public partial class MainWindow : Window
 
     private QueueEntryView AddQueue(string name, string source, string destination, TransferDirection direction, long totalBytes = 0, Guid? sourceProfileId = null)
     {
-        var entry = new QueueEntryView(name, source, destination, direction, totalBytes: totalBytes) { SourceProfileId = sourceProfileId }; _queue.Add(entry); SaveQueue(); UpdateQueueStatus(); return entry;
+        var entry = new QueueEntryView(name, source, destination, direction, totalBytes: totalBytes) { SourceProfileId = sourceProfileId, QueuedAt = DateTimeOffset.Now }; _queue.Add(entry); SaveQueue(); UpdateQueueStatus(); return entry;
     }
 
     private void Schedule(QueueEntryView entry)
@@ -710,6 +710,7 @@ public partial class MainWindow : Window
         var (sourceSite, destinationSite) = SitesFor(entry.Direction);
         sourceSite ??= entry.SourceProfileId;
         entry.State = "Queued";
+        entry.QueuedAt ??= DateTimeOffset.Now;
         _engine.Enqueue([new TransferWorkItem(entry.Id, entry.Id, entry.Name, sourceSite, destinationSite,
             entry.Source, entry.Destination, entry.TotalBytes, QueuedAt: DateTimeOffset.UtcNow)]);
         SaveQueue(); UpdateQueueStatus();
@@ -739,6 +740,7 @@ public partial class MainWindow : Window
         try
         {
             entry.State = "Transferring";
+            entry.StartedAt ??= DateTimeOffset.Now;
             SaveQueue();
             await RunScriptsAsync("BeforeTransfer", TransferScriptVariables(entry, "Starting"), false);
             if (needsLeft) leftWorker = await CreateWorkerAsync(_leftProfile!, cancellationToken);
@@ -1086,7 +1088,7 @@ public partial class MainWindow : Window
             var saved = JsonSerializer.Deserialize<List<QueueSnapshot>>(File.ReadAllText(source)) ?? [];
             foreach (var item in saved)
                 _queue.Add(new QueueEntryView(item.Name, item.Source, item.Destination, item.Direction, item.Id == Guid.Empty ? Guid.NewGuid() : item.Id)
-                { State = item.State is "Completed" ? "Completed" : "Paused", BytesTransferred = item.BytesTransferred, TotalBytes = item.TotalBytes, SourceProfileId = item.SourceProfileId });
+                { State = item.State is "Completed" ? "Completed" : "Paused", BytesTransferred = item.BytesTransferred, TotalBytes = item.TotalBytes, SourceProfileId = item.SourceProfileId, QueuedAt = item.QueuedAt, StartedAt = item.StartedAt });
             UpdateQueueStatus();
             if (source == _oldQueuePath) SaveQueue();
         }
@@ -1098,7 +1100,7 @@ public partial class MainWindow : Window
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_queuePath)!);
-            var snapshots = _queue.Select(item => new QueueSnapshot(item.Name, item.Source, item.Destination, item.Direction, item.State, item.BytesTransferred, item.TotalBytes, item.Id, item.SourceProfileId));
+            var snapshots = _queue.Select(item => new QueueSnapshot(item.Name, item.Source, item.Destination, item.Direction, item.State, item.BytesTransferred, item.TotalBytes, item.Id, item.SourceProfileId, item.QueuedAt, item.StartedAt));
             var temporary = _queuePath + ".tmp"; File.WriteAllText(temporary, JsonSerializer.Serialize(snapshots, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(temporary, _queuePath, true);
         }
@@ -1277,6 +1279,26 @@ public partial class MainWindow : Window
             "Scrolling" => ScrollLegend(compact),
             _ => compact
         };
+        UpdateStatusProgress();
+    }
+
+    private void UpdateStatusProgress()
+    {
+        var active = _queue.Where(item => item.State is "Queued" or "Transferring").ToList();
+        var known = active.Where(item => item.TotalBytes > 0).ToList();
+        if (active.Count == 0)
+        {
+            StatusProgressBar.IsIndeterminate = false; StatusProgressBar.Value = 0; StatusProgressText.Text = "Idle"; return;
+        }
+        if (known.Count == 0)
+        {
+            StatusProgressBar.IsIndeterminate = true; StatusProgressText.Text = $"{active.Count} active"; return;
+        }
+        var total = known.Sum(item => (double)item.TotalBytes);
+        var transferred = known.Sum(item => Math.Min((double)item.BytesTransferred, item.TotalBytes));
+        var percent = total <= 0 ? 0 : transferred * 100 / total;
+        StatusProgressBar.IsIndeterminate = false; StatusProgressBar.Value = percent;
+        StatusProgressText.Text = $"{percent:0}%  {known.Count}/{active.Count}";
     }
 
     private string ScrollLegend(string text)
@@ -1448,12 +1470,13 @@ public partial class MainWindow : Window
             TransferDirection.RelayLeftToRight => "R1→R2",
             _ => "R2→R1"
         };
-        var done = entry.State == "Completed" ? "100%" : entry.TotalBytes > 0 ? $"{Math.Min(100, entry.BytesTransferred * 100 / entry.TotalBytes)}%" : entry.State == "Transferring" ? "RUN" : entry.State.ToUpperInvariant();
-        return new TransferJobInfo(entry.Id, "—", entry.State == "Transferring" ? "now" : "—", direction,
+        var progressPercent = entry.State == "Completed" ? 100d : entry.TotalBytes > 0 ? Math.Clamp(entry.BytesTransferred * 100d / entry.TotalBytes, 0, 100) : 0d;
+        var done = entry.State == "Completed" ? "100%" : entry.TotalBytes > 0 ? $"{progressPercent:0}%" : entry.State == "Transferring" ? "RUN" : entry.State.ToUpperInvariant();
+        return new TransferJobInfo(entry.Id, entry.QueuedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "—", entry.StartedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "—", direction,
             remoteToRemote ? "FXP" : "FTP", entry.Name, $"{entry.Source} → {entry.Destination}",
             entry.TotalBytes > 0 ? FormatSize(entry.TotalBytes) : entry.ProgressText, "1",
             entry.TotalBytes > 0 ? FormatSize(Math.Max(0, entry.TotalBytes - entry.BytesTransferred)) : "—",
-            entry.SpeedBytesPerSecond > 0 ? $"{FormatSize(entry.SpeedBytesPerSecond)}/s" : "—", done, entry.State);
+            entry.SpeedBytesPerSecond > 0 ? $"{FormatSize(entry.SpeedBytesPerSecond)}/s" : "—", done, entry.State, progressPercent);
     }).ToList();
 
     private sealed record LocalEntryView(string Name, string Size, string Modified, string Attributes, string FullPath, bool IsDirectory);
@@ -1464,7 +1487,7 @@ public partial class MainWindow : Window
     {
         public override string ToString() => Label;
     }
-    private sealed record QueueSnapshot(string Name, string Source, string Destination, TransferDirection Direction, string State, long BytesTransferred, long TotalBytes = 0, Guid Id = default, Guid? SourceProfileId = null);
+    private sealed record QueueSnapshot(string Name, string Source, string Destination, TransferDirection Direction, string State, long BytesTransferred, long TotalBytes = 0, Guid Id = default, Guid? SourceProfileId = null, DateTimeOffset? QueuedAt = null, DateTimeOffset? StartedAt = null);
 
     private sealed class QueueEntryView(string name, string source, string destination, TransferDirection direction, Guid? id = null, long totalBytes = 0) : INotifyPropertyChanged
     {
@@ -1472,14 +1495,19 @@ public partial class MainWindow : Window
         public string Name { get; } = name; public string Source { get; } = source; public string Destination { get; } = destination;
         public TransferDirection Direction { get; } = direction;
         public Guid Id { get; } = id ?? Guid.NewGuid();
-        public long TotalBytes { get; set; } = totalBytes;
+        private long _totalBytes = totalBytes;
+        public long TotalBytes { get => _totalBytes; set { _totalBytes = value; Changed(); Changed(nameof(ProgressPercent)); Changed(nameof(ProgressDisplay)); } }
         private long _speedBytesPerSecond;
         public long SpeedBytesPerSecond { get => _speedBytesPerSecond; set { _speedBytesPerSecond = value; Changed(); } }
         public Guid? SourceProfileId { get; set; }
+        public DateTimeOffset? QueuedAt { get; set; }
+        public DateTimeOffset? StartedAt { get; set; }
         public DateTime LastPersistedAt { get; set; }
-        public string State { get => _state; set { _state = value; Changed(); } }
-        public long BytesTransferred { get => _bytesTransferred; set { _bytesTransferred = value; Changed(); Changed(nameof(ProgressText)); } }
+        public string State { get => _state; set { _state = value; Changed(); Changed(nameof(ProgressPercent)); Changed(nameof(ProgressDisplay)); } }
+        public long BytesTransferred { get => _bytesTransferred; set { _bytesTransferred = value; Changed(); Changed(nameof(ProgressText)); Changed(nameof(ProgressPercent)); Changed(nameof(ProgressDisplay)); } }
         public string ProgressText => FormatSize(BytesTransferred);
+        public double ProgressPercent => State == "Completed" ? 100 : TotalBytes > 0 ? Math.Clamp(BytesTransferred * 100d / TotalBytes, 0, 100) : 0;
+        public string ProgressDisplay => TotalBytes > 0 ? $"{FormatSize(BytesTransferred)} / {FormatSize(TotalBytes)}  ({ProgressPercent:0}%)" : ProgressText;
         public event PropertyChangedEventHandler? PropertyChanged;
         private void Changed([CallerMemberName] string? property = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
     }
