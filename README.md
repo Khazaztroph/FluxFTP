@@ -43,7 +43,7 @@ FluxFTP sends the following commands automatically when required by browsing, tr
 
 - Connection and TLS: `USER`, `PASS`, `AUTH TLS`, `PBSZ`, `PROT`, `FEAT`, `TYPE` and `QUIT`
 - Navigation and file management: `CWD`, `MKD`, `RMD`, `DELE`, `RNFR`, `RNTO` and `SITE CHMOD`
-- Directory and file information: `STAT -l`, `LIST` and `SIZE`
+- Directory and file information: automatic `MLSD` → `LIST` → `STAT -l` fallback, plus `SIZE`
 - Data connections and resume: `EPSV`, CEPR address replies, `PASV`, `PORT`, `EPRT` and `REST`
 - File transfers: `RETR` and `STOR`
 - Secure server-to-server FXP: `CPSV`, `SSCN ON` and `SSCN OFF`

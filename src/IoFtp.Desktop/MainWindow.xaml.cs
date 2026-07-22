@@ -1143,6 +1143,8 @@ public partial class MainWindow : Window
 
     private static string DescribeListingMode(DirectoryListingMode mode, IReadOnlySet<string> capabilities) => mode switch
     {
+        DirectoryListingMode.Auto when capabilities.Contains("MLSD") => "MLSD (LIST, STAT -l fallback)",
+        DirectoryListingMode.Auto => "LIST (STAT -l fallback; MLSD not advertised)",
         DirectoryListingMode.StatThenList when capabilities.Contains("STAT") => "STAT -l (LIST fallback)",
         DirectoryListingMode.StatThenList => "LIST (STAT not advertised)",
         DirectoryListingMode.StatOnly => "STAT -l",

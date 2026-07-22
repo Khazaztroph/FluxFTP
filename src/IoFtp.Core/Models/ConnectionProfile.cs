@@ -26,7 +26,8 @@ public enum DirectoryListingMode
 {
     StatThenList,
     StatOnly,
-    ListOnly
+    ListOnly,
+    Auto
 }
 
 public enum ProxyType { None, Socks4, Socks5, HttpConnect }
@@ -62,7 +63,7 @@ public sealed record ConnectionProfile(
     TransferProtocol Protocol,
     [property: JsonIgnore] string Password = "",
     bool AllowInvalidCertificate = false,
-    DirectoryListingMode ListingMode = DirectoryListingMode.StatThenList,
+    DirectoryListingMode ListingMode = DirectoryListingMode.Auto,
     SiteOptions? Options = null,
     ProxyConfiguration? Proxy = null,
     string AlternateAddresses = "")

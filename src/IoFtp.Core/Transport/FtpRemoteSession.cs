@@ -79,7 +79,13 @@ public sealed class FtpRemoteSession : IRemoteSession
             foreach (var line in features.Message.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Skip(1).SkipLast(1))
             {
                 var feature = line.Trim().Split(' ', 2)[0];
-                if (feature.Length > 0) capabilities.Add(feature);
+                if (feature.Length > 0)
+                {
+                    capabilities.Add(feature);
+                    // RFC 3659 advertises the MLST feature; the companion MLSD
+                    // command is implied and is not normally listed separately.
+                    if (feature.Equals("MLST", StringComparison.OrdinalIgnoreCase)) capabilities.Add("MLSD");
+                }
             }
         }
         Capabilities = capabilities;
@@ -222,8 +228,43 @@ public sealed class FtpRemoteSession : IRemoteSession
     private async Task<IReadOnlyList<RemoteEntry>> ListCoreAsync(string path, CancellationToken cancellationToken)
     {
         EnsureConnected();
+        if (_profile!.ListingMode == DirectoryListingMode.Auto)
+            return await ListAutomaticAsync(path, cancellationToken);
+        return await ListDataCoreAsync(path, "LIST", ParseListing, cancellationToken, allowPreferredStat: true);
+    }
+
+    private async Task<IReadOnlyList<RemoteEntry>> ListAutomaticAsync(string path, CancellationToken cancellationToken)
+    {
+        var failures = new List<Exception>();
+        if (Capabilities.Contains("MLSD"))
+        {
+            try { return await ListDataCoreAsync(path, "MLSD", ParseMlsdListing, cancellationToken); }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                failures.Add(exception);
+                await ReconnectAfterListResetAsync(cancellationToken);
+            }
+        }
+
+        try { return await ListDataCoreAsync(path, "LIST", ParseListing, cancellationToken); }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            failures.Add(exception);
+            await ReconnectAfterListResetAsync(cancellationToken);
+        }
+
+        var stat = await CommandAsync($"STAT -l {path}", cancellationToken);
+        if (stat.Code is >= 200 and < 300) return ParseStatListing(path, stat.Message);
+        failures.Add(new FtpCommandException(stat.Code, stat.Message));
+        throw new AggregateException("MLSD, LIST and STAT -l all failed.", failures);
+    }
+
+    private async Task<IReadOnlyList<RemoteEntry>> ListDataCoreAsync(string path, string command,
+        Func<string, string, IReadOnlyList<RemoteEntry>> parser, CancellationToken cancellationToken,
+        bool allowPreferredStat = false)
+    {
         var shouldTryStat = _profile!.ListingMode == DirectoryListingMode.StatOnly ||
-            (_profile.ListingMode == DirectoryListingMode.StatThenList && Capabilities.Contains("STAT"));
+            (allowPreferredStat && _profile.ListingMode == DirectoryListingMode.StatThenList && Capabilities.Contains("STAT"));
         if (shouldTryStat)
         {
             var stat = await CommandAsync($"STAT -l {path}", cancellationToken);
@@ -240,7 +281,7 @@ public sealed class FtpRemoteSession : IRemoteSession
                 throw new FtpCommandException(stat.Code, stat.Message);
         }
 
-        await PrepareDataCommandAsync($"LIST {path}", cancellationToken);
+        await PrepareDataCommandAsync($"{command} {path}", cancellationToken);
         var endpoint = await OpenPassiveEndpointAsync(cancellationToken);
 
         TcpClient dataClient;
@@ -252,11 +293,11 @@ public sealed class FtpRemoteSession : IRemoteSession
         }
         catch (Exception exception) when (exception is SocketException or OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            return await ListActiveAsync(path, cancellationToken);
+            return await ListActiveAsync(path, command, parser, cancellationToken);
         }
 
         using var ownedDataClient = dataClient;
-        var listResponse = await CommandAsync($"LIST {path}", cancellationToken);
+        var listResponse = await CommandAsync($"{command} {path}", cancellationToken);
         EnsureSuccess(listResponse, 125, 150);
         // FTPS servers begin the data-channel TLS handshake only after accepting
         // the transfer command. Starting TLS before LIST deadlocks with ioFTPD.
@@ -274,7 +315,7 @@ public sealed class FtpRemoteSession : IRemoteSession
                 throw new FtpCommandException(clearProtection.Code,
                     $"TLS data handshake failed ({failedCompletion.Code}); clear LIST fallback was rejected: {clearProtection.Message}");
             _protectData = false;
-            try { return await ListCoreAsync(path, cancellationToken); }
+            try { return await ListDataCoreAsync(path, command, parser, cancellationToken, allowPreferredStat); }
             finally
             {
                 _protectData = true;
@@ -285,7 +326,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         string listing;
         try { listing = await ReadListingDataAsync(dataStream, cancellationToken); }
         finally { await DisposeDataStreamSafelyAsync(dataStream); }
-        IReadOnlyList<RemoteEntry> parsedListing = ParseListing(path, listing);
+        IReadOnlyList<RemoteEntry> parsedListing = parser(path, listing);
         try
         {
             var completion = await ReadResponseAsync(cancellationToken);
@@ -302,7 +343,7 @@ public sealed class FtpRemoteSession : IRemoteSession
                 var stat = await CommandAsync($"STAT -l {path}", cancellationToken);
                 if (stat.Code is >= 200 and < 300) parsedListing = ParseStatListing(path, stat.Message);
                 if (parsedListing.Count == 0)
-                    throw new IOException($"ProFTPD reset LIST for {path}, and STAT -l returned no directory entries.", exception);
+                    throw new IOException($"ProFTPD reset {command} for {path}, and STAT -l returned no directory entries.", exception);
             }
         }
         return parsedListing;
@@ -410,7 +451,8 @@ public sealed class FtpRemoteSession : IRemoteSession
         finally { listener.Stop(); }
     }
 
-    private async Task<IReadOnlyList<RemoteEntry>> ListActiveAsync(string path, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<RemoteEntry>> ListActiveAsync(string path, string command,
+        Func<string, string, IReadOnlyList<RemoteEntry>> parser, CancellationToken cancellationToken)
     {
         var localEndpoint = (IPEndPoint)_controlClient!.Client.LocalEndPoint!;
         if (localEndpoint.AddressFamily != AddressFamily.InterNetwork)
@@ -420,11 +462,11 @@ public sealed class FtpRemoteSession : IRemoteSession
         listener.Start();
         try
         {
-            await PrepareDataCommandAsync($"LIST {path}", cancellationToken);
+            await PrepareDataCommandAsync($"{command} {path}", cancellationToken);
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
             var address = localEndpoint.Address.GetAddressBytes();
             EnsureSuccess(await CommandAsync($"PORT {string.Join(',', address)},{port / 256},{port % 256}", cancellationToken), 200);
-            var listResponse = await CommandAsync($"LIST {path}", cancellationToken);
+            var listResponse = await CommandAsync($"{command} {path}", cancellationToken);
             EnsureSuccess(listResponse, 125, 150);
 
             using var dataClient = await listener.AcceptTcpClientAsync(cancellationToken);
@@ -434,7 +476,7 @@ public sealed class FtpRemoteSession : IRemoteSession
             finally { await DisposeDataStreamSafelyAsync(dataStream); }
             var completion = await ReadResponseAsync(cancellationToken);
             EnsureSuccess(completion, 226, 250);
-            return ParseListing(path, listing);
+            return parser(path, listing);
         }
         finally { listener.Stop(); }
     }
@@ -495,6 +537,28 @@ public sealed class FtpRemoteSession : IRemoteSession
     private static IReadOnlyList<RemoteEntry> ParseListing(string path, string listing) =>
         listing.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(line => ParseEntry(path, line)).Where(entry => entry is not null).Cast<RemoteEntry>().ToList();
+
+    private static IReadOnlyList<RemoteEntry> ParseMlsdListing(string path, string listing) =>
+        listing.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => ParseMlsdEntry(path, line)).Where(entry => entry is not null).Cast<RemoteEntry>().ToList();
+
+    private static RemoteEntry? ParseMlsdEntry(string parent, string line)
+    {
+        var separator = line.IndexOf(' ');
+        if (separator <= 0 || separator == line.Length - 1) return null;
+        var facts = line[..separator].Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(fact => fact.Split('=', 2)).Where(parts => parts.Length == 2)
+            .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.OrdinalIgnoreCase);
+        var name = line[(separator + 1)..].Trim();
+        if (name.Length == 0 || name is "." or "..") return null;
+        var type = facts.GetValueOrDefault("type", "file");
+        if (type.Equals("cdir", StringComparison.OrdinalIgnoreCase) || type.Equals("pdir", StringComparison.OrdinalIgnoreCase)) return null;
+        var directory = type.Equals("dir", StringComparison.OrdinalIgnoreCase);
+        long? size = !directory && long.TryParse(facts.GetValueOrDefault("size"), out var bytes) ? bytes : null;
+        DateTimeOffset? modified = DateTimeOffset.TryParseExact(facts.GetValueOrDefault("modify"), "yyyyMMddHHmmss",
+            CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp) ? timestamp : null;
+        return new(name, Combine(parent, name), directory, size, modified, facts.GetValueOrDefault("perm", type));
+    }
 
     private static IReadOnlyList<RemoteEntry> ParseStatListing(string path, string response)
     {
