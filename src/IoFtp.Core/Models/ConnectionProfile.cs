@@ -10,6 +10,18 @@ public enum TransferProtocol
     Sftp
 }
 
+public static class TransferProtocolNames
+{
+    public static string Display(TransferProtocol protocol) => protocol switch
+    {
+        TransferProtocol.FtpsExplicit => "AUTH TLS",
+        TransferProtocol.FtpsImplicit => "Implicit TLS",
+        TransferProtocol.Ftp => "None (FTP)",
+        TransferProtocol.Sftp => "SFTP",
+        _ => protocol.ToString()
+    };
+}
+
 public enum DirectoryListingMode
 {
     StatThenList,
@@ -56,6 +68,7 @@ public sealed record ConnectionProfile(
     string AlternateAddresses = "")
 {
     [JsonIgnore] public SiteOptions EffectiveOptions => Options ?? new SiteOptions();
+    [JsonIgnore] public string ProtocolDisplay => TransferProtocolNames.Display(Protocol);
     [JsonIgnore] public IReadOnlyList<SiteEndpoint> EffectiveAddresses
     {
         get

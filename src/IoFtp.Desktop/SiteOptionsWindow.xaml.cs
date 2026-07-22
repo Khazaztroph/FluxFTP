@@ -10,7 +10,7 @@ public partial class SiteOptionsWindow : Window
     public SiteOptionsWindow(ConnectionProfile profile)
     {
         InitializeComponent();
-        SiteSummary.Text = $"{profile.Name}   {profile.Protocol}://{profile.Host}:{profile.Port}";
+        SiteSummary.Text = $"{profile.Name}   {TransferProtocolNames.Display(profile.Protocol)}   {profile.Host}:{profile.Port}";
         var options = profile.EffectiveOptions;
         MaxSlotsBox.Text = options.MaxSlots.ToString(); UploadSlotsBox.Text = options.MaxUploadSlots.ToString(); DownloadSlotsBox.Text = options.MaxDownloadSlots.ToString();
         PriorityBox.Text = options.Priority.ToString(); AllowUploadBox.IsChecked = options.AllowUpload; AllowDownloadBox.IsChecked = options.AllowDownload;

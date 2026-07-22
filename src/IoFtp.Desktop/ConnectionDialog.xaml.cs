@@ -17,7 +17,7 @@ public partial class ConnectionDialog : Window
         Title = quickConnect ? "Quick Connect" : profile is null ? "New Site" : "Edit Site";
         AcceptButton.Content = quickConnect ? "Connect" : "Save";
         NameBox.IsEnabled = !quickConnect;
-        ProtocolBox.ItemsSource = Enum.GetValues<TransferProtocol>();
+        ProtocolBox.ItemsSource = Enum.GetValues<TransferProtocol>().Select(protocol => new ProtocolChoice(protocol)).ToArray();
         ListingModeBox.ItemsSource = new[]
         {
             new ListingModeOption(DirectoryListingMode.StatThenList, "STAT -l, then LIST"),
@@ -29,7 +29,7 @@ public partial class ConnectionDialog : Window
         if (profile is not null)
         {
             NameBox.Text = profile.Name;
-            ProtocolBox.SelectedItem = profile.Protocol;
+            ProtocolBox.SelectedItem = ((ProtocolChoice[])ProtocolBox.ItemsSource).First(choice => choice.Protocol == profile.Protocol);
             HostBox.Text = string.Join(' ', profile.EffectiveAddresses.Select(address => address.ToString()));
             PortBox.Text = profile.Port.ToString();
             UsernameBox.Text = profile.Username;
@@ -43,7 +43,7 @@ public partial class ConnectionDialog : Window
             var defaults = new GlobalSettingsStore().Load();
             NameBox.Text = quickConnect ? "Quick connection" : "New site";
             UsernameBox.Text = defaults.DefaultUsername;
-            ProtocolBox.SelectedItem = defaults.DefaultProtocol;
+            ProtocolBox.SelectedItem = ((ProtocolChoice[])ProtocolBox.ItemsSource).First(choice => choice.Protocol == defaults.DefaultProtocol);
             ListingModeBox.SelectedIndex = 0;
             RemotePathBox.Text = "/";
             _options = new SiteOptions(defaults.DefaultSlots, defaults.DefaultUploadSlots, defaults.DefaultDownloadSlots,
@@ -54,8 +54,9 @@ public partial class ConnectionDialog : Window
 
     private void Protocol_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (ProtocolBox.SelectedItem is not TransferProtocol protocol)
+        if (ProtocolBox.SelectedItem is not ProtocolChoice choice)
             return;
+        var protocol = choice.Protocol;
         if (string.IsNullOrWhiteSpace(PortBox.Text) || PortBox.Text is "21" or "22" or "990")
             PortBox.Text = protocol switch { TransferProtocol.Sftp => "22", TransferProtocol.FtpsImplicit => "990", _ => "21" };
     }
@@ -88,7 +89,7 @@ public partial class ConnectionDialog : Window
         if (!remotePath.StartsWith('/')) remotePath = "/" + remotePath;
         var options = (_options ?? new SiteOptions()) with { BasePath = remotePath };
         var primary = addresses[0];
-        Profile = new ConnectionProfile(_id, name, primary.Host, primary.Port, UsernameBox.Text.Trim(), (TransferProtocol)ProtocolBox.SelectedItem,
+        Profile = new ConnectionProfile(_id, name, primary.Host, primary.Port, UsernameBox.Text.Trim(), ((ProtocolChoice)ProtocolBox.SelectedItem).Protocol,
             PasswordBox.Password, AllowInvalidCertificateBox.IsChecked == true, listingMode, options,
             AlternateAddresses: string.Join(' ', addresses.Skip(1).Select(address => address.ToString())));
         DialogResult = true;
@@ -97,5 +98,9 @@ public partial class ConnectionDialog : Window
     private sealed record ListingModeOption(DirectoryListingMode Mode, string Label)
     {
         public override string ToString() => Label;
+    }
+    private sealed record ProtocolChoice(TransferProtocol Protocol)
+    {
+        public override string ToString() => TransferProtocolNames.Display(Protocol);
     }
 }

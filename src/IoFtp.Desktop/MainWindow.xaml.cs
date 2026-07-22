@@ -145,7 +145,7 @@ public partial class MainWindow : Window
         ConnectionStatus.Text = $"Connecting to {profile.Host}:{profile.Port}…";
         if (left) LeftSiteTitle.Text = $"REMOTE — {profile.Name.ToUpperInvariant()}";
         else RemoteSiteTitle.Text = $"REMOTE — {profile.Name.ToUpperInvariant()}";
-        LogText.AppendText($"{Environment.NewLine}Connecting with {profile.Protocol} to {profile.Host}:{profile.Port}…");
+        LogText.AppendText($"{Environment.NewLine}Connecting with {TransferProtocolNames.Display(profile.Protocol)} to {profile.Host}:{profile.Port}…");
         try
         {
             var session = left ? _leftRemoteSession : _remoteSession;

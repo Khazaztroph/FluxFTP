@@ -9,7 +9,7 @@
         <ListView x:Name="SitesList" Grid.Row="1" MouseDoubleClick="Edit_Click">
             <ListView.View><GridView>
                 <GridViewColumn Header="Name" DisplayMemberBinding="{Binding Name}" Width="180"/>
-                <GridViewColumn Header="Protocol" DisplayMemberBinding="{Binding Protocol}" Width="120"/>
+                <GridViewColumn Header="Protocol" DisplayMemberBinding="{Binding ProtocolDisplay}" Width="120"/>
                 <GridViewColumn Header="Host" DisplayMemberBinding="{Binding Host}" Width="210"/>
                 <GridViewColumn Header="Port" DisplayMemberBinding="{Binding Port}" Width="70"/>
                 <GridViewColumn Header="Listing" DisplayMemberBinding="{Binding ListingMode}" Width="120"/>
