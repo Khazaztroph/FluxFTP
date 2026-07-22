@@ -35,6 +35,10 @@ and started timestamps, live speed information, and an aggregate activity bar in
 the main status area. FluxFTP can also check GitHub Releases for updates at startup
 or manually from Global Settings.
 
+Remote folders can be downloaded recursively to either Local pane. FluxFTP creates
+the local directory tree and queues each file through the configured reusable
+download slots while applying the Skiplist and Priority List.
+
 Saved sites may contain multiple addresses or FTP bouncers in the **Address(es)** field, separated by spaces. FluxFTP tries the first address immediately and starts the remaining attempts after one second. The first successful address is promoted to the front of the saved list for future connections.
 
 ## Currently supported FTP commands

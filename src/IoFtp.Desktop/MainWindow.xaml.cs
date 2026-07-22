@@ -473,6 +473,9 @@ public partial class MainWindow : Window
             if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 1 && _remoteSession is not null && _leftRemoteSession is not null)
                 await QueueRemoteDirectoryAsync(_remoteSession, _leftRemoteSession, entry.FullPath,
                     NormalizeRemotePath($"{_leftRemoteDirectory}/{entry.Name}"), TransferDirection.RelayRightToLeft);
+            else if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 0 && _remoteSession is not null)
+                await QueueRemoteToLocalDirectoryAsync(_remoteSession, entry.FullPath,
+                    Path.Combine(_localDirectory, entry.Name), TransferDirection.Download);
             return;
         }
         QueueEntryView queueEntry;
@@ -499,6 +502,9 @@ public partial class MainWindow : Window
             if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 1 && _leftRemoteSession is not null && _remoteSession is not null)
                 await QueueRemoteDirectoryAsync(_leftRemoteSession, _remoteSession, entry.FullPath,
                     NormalizeRemotePath($"{_remoteDirectory}/{entry.Name}"), TransferDirection.RelayLeftToRight);
+            else if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 0 && _leftRemoteSession is not null)
+                await QueueRemoteToLocalDirectoryAsync(_leftRemoteSession, entry.FullPath,
+                    Path.Combine(_rightLocalDirectory, entry.Name), TransferDirection.DownloadFromLeft);
             return;
         }
         QueueEntryView queueEntry;
@@ -650,6 +656,40 @@ public partial class MainWindow : Window
             Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0));
         LogText.AppendText($"{Environment.NewLine}Queued remote folder {sourceRoot}: {fileCount} files.");
         LogText.ScrollToEnd();
+    }
+
+    private async Task QueueRemoteToLocalDirectoryAsync(FtpRemoteSession source, string sourceRoot,
+        string destinationRoot, TransferDirection direction)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            var pending = new Stack<(string Source, string Destination)>();
+            var files = new List<(RemoteEntry Entry, string Destination)>();
+            pending.Push((sourceRoot, Path.GetFullPath(destinationRoot)));
+            while (pending.Count > 0)
+            {
+                var folder = pending.Pop();
+                Directory.CreateDirectory(folder.Destination);
+                foreach (var child in await source.ListAsync(folder.Source, timeout.Token))
+                {
+                    if (child.Name is "." or "..") continue;
+                    var target = Path.Combine(folder.Destination, child.Name);
+                    if (child.IsDirectory) pending.Push((child.FullPath, target));
+                    else if (!ShouldSkip(child.Name)) files.Add((child, target));
+                }
+            }
+            foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, StringComparer.OrdinalIgnoreCase))
+                Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0));
+            LogText.AppendText($"{Environment.NewLine}Queued remote folder for local download {sourceRoot}: {files.Count} files.");
+            LogText.ScrollToEnd();
+            if (direction == TransferDirection.Download) LoadLocalDirectory(_localDirectory); else LoadRightLocalDirectory(_rightLocalDirectory);
+        }
+        catch (Exception exception)
+        {
+            LogText.AppendText($"{Environment.NewLine}Could not queue remote folder {sourceRoot}: {FriendlyMessage(exception)}");
+            LogText.ScrollToEnd();
+        }
     }
 
     private int PriorityRank(string name)
