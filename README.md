@@ -43,6 +43,20 @@ FluxFTP can minimize and close to the Windows system tray so transfers and API
 automation continue in the background. Use **Exit FluxFTP** from the tray menu to
 stop the application; an additional warning is shown while the HTTPS/JSON API is active.
 
+## Screenshots
+
+### Dual-pane workspace
+
+![FluxFTP dual-pane main window](docs/screenshots/main-window.png)
+
+| Transfer Jobs | Site Manager |
+| --- | --- |
+| ![FluxFTP Transfer Jobs](docs/screenshots/transfer-jobs.png) | ![FluxFTP Site Manager](docs/screenshots/site-manager.png) |
+
+### Global Settings
+
+![FluxFTP Global Settings](docs/screenshots/global-settings.png)
+
 Saved sites may contain multiple addresses or FTP bouncers in the **Address(es)** field, separated by spaces. FluxFTP tries the first address immediately and starts the remaining attempts after one second. The first successful address is promoted to the front of the saved list for future connections.
 
 ## Currently supported FTP commands
