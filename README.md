@@ -1,8 +1,4 @@
- _______ __               _______ _______ ______ 
-|    ___|  |.--.--.--.--.|    ___|_     _|   __ \
-|    ___|  ||  |  |_   _||    ___| |   | |    __/
-|___|   |__||_____|__.__||___|     |___| |___|   
-                                                                   
+               
 # FluxFTP
 
 FluxFTP is a modern dual-pane FTP/FXP client prototype. The first milestone focuses
