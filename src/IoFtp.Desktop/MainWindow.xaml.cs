@@ -2,6 +2,8 @@ using System.IO;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
@@ -159,17 +161,18 @@ public partial class MainWindow : Window
                 BlockedTargets: ResolveSiteNames(options.BlockTransfersTo)));
             using (var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
                 await session.ConnectAsync(profile, connectTimeout.Token);
-            ConnectionStatus.Text = $"Connected: {profile.Host}:{profile.Port}; loading files…";
+            new ProfileStore().PromoteAddress(profile.Id, session.ConnectedHost, session.ConnectedPort);
+            ConnectionStatus.Text = $"Connected: {session.ConnectedHost}:{session.ConnectedPort}; loading files…";
             LogText.AppendText($"{Environment.NewLine}TLS login succeeded. Loading directory with {DescribeListingMode(profile.ListingMode, session.Capabilities)}…");
             LogText.ScrollToEnd();
             IReadOnlyList<IoFtp.Core.Abstractions.RemoteEntry> entries;
             using (var listTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20)))
                 entries = await session.ListAsync(options.BasePath, listTimeout.Token);
             if (left) ShowLeftRemoteEntries(options.BasePath, entries); else ShowRemoteEntries(options.BasePath, entries);
-            ConnectionStatus.Text = $"Connected: {profile.Host}:{profile.Port}";
+            ConnectionStatus.Text = $"Connected: {session.ConnectedHost}:{session.ConnectedPort}";
             LogText.AppendText($"{Environment.NewLine}Connected. {entries.Count} remote entries received.");
             LogText.AppendText($"{Environment.NewLine}Capabilities: {string.Join(", ", session.Capabilities.OrderBy(value => value))}");
-            await RunScriptsAsync("OnConnect", new() { ["site"] = profile.Name, ["host"] = profile.Host, ["path"] = options.BasePath, ["status"] = "Connected" }, true);
+            await RunScriptsAsync("OnConnect", new() { ["site"] = profile.Name, ["host"] = session.ConnectedHost, ["path"] = options.BasePath, ["status"] = "Connected" }, true);
         }
         catch (Exception exception)
         {
@@ -776,6 +779,7 @@ public partial class MainWindow : Window
                     try
                     {
                         LogText.AppendText($"{Environment.NewLine}Attempting direct secure FXP: {entry.Name}");
+                        var fxpStartedAt = DateTime.UtcNow;
                         using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                         var destinationProfile = entry.Direction == TransferDirection.RelayLeftToRight ? _rightProfile! : _leftProfile!;
                         var monitor = MonitorFxpAsync(destinationProfile, entry, monitorCancellation.Token);
@@ -787,11 +791,20 @@ public partial class MainWindow : Window
                             try { await monitor; } catch (Exception) { }
                         }
                         if (entry.TotalBytes > 0) entry.BytesTransferred = entry.TotalBytes;
-                        entry.SpeedBytesPerSecond = 0;
+                        // Keep the final observed speed visible. Very small files can
+                        // finish before ioFTPD publishes a WHO sample, so calculate a
+                        // useful average for those instead of displaying a dash.
+                        var elapsed = Math.Max((DateTime.UtcNow - fxpStartedAt).TotalSeconds, 0.001);
+                        if (entry.SpeedBytesPerSecond <= 0 && entry.TotalBytes > 0)
+                            entry.SpeedBytesPerSecond = (long)(entry.TotalBytes / elapsed);
                         LogText.AppendText($"{Environment.NewLine}Direct FXP completed via {sourceSession.LastFxpNegotiation}: {entry.Name}");
                         entry.State = "Completed";
                         await RunScriptsAsync("AfterTransfer", TransferScriptVariables(entry, "Completed"), true);
                         return;
+                    }
+                    catch (FtpCommandException exception) when (exception.StatusCode == 553 && DestinationUsesXdupe(entry))
+                    {
+                        throw;
                     }
                     catch (Exception fxpException)
                     {
@@ -821,6 +834,15 @@ public partial class MainWindow : Window
             LogText.AppendText($"{Environment.NewLine}Transfer completed: {entry.Name}");
             await RunScriptsAsync("AfterTransfer", TransferScriptVariables(entry, "Completed"), true);
         }
+        catch (FtpCommandException exception) when (exception.StatusCode == 553 && DestinationUsesXdupe(entry))
+        {
+            ApplyXdupeReply(entry, exception.Message);
+            entry.BytesTransferred = entry.TotalBytes;
+            entry.State = "Completed";
+            LogText.AppendText($"{Environment.NewLine}XDUPE skipped existing remote file: {entry.Name}");
+            await RunScriptsAsync("AfterTransfer", TransferScriptVariables(entry, "XDUPE skipped"), true);
+            return;
+        }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             entry.State = "Paused";
@@ -840,6 +862,36 @@ public partial class MainWindow : Window
             if (rightWorker is not null) await rightWorker.DisposeAsync();
             if (apiWorker is not null) await apiWorker.DisposeAsync();
             SaveQueue(); UpdateQueueStatus(); LogText.ScrollToEnd();
+        }
+    }
+
+    private bool DestinationUsesXdupe(QueueEntryView entry)
+    {
+        var profile = entry.Direction switch
+        {
+            TransferDirection.Upload or TransferDirection.RelayLeftToRight => _rightProfile,
+            TransferDirection.UploadToLeft or TransferDirection.RelayRightToLeft => _leftProfile,
+            _ => null
+        };
+        return profile?.EffectiveOptions.UseXdupe == true;
+    }
+
+    private void ApplyXdupeReply(QueueEntryView current, string response)
+    {
+        var duplicates = Regex.Matches(response, @"X-DUPE\s*:\s*([^\r\n]+)", RegexOptions.IgnoreCase)
+            .Select(match => match.Groups[1].Value.Trim().Trim('"'))
+            .Where(name => name.Length > 0)
+            .Select(name => name.Replace('\\', '/').Split('/').Last())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (duplicates.Count == 0) return;
+
+        foreach (var queued in _queue.Where(item => item.Id != current.Id && item.State == "Queued" &&
+                     item.Direction == current.Direction && duplicates.Contains(item.Name)).ToList())
+        {
+            _engine.Remove(queued.Id);
+            queued.BytesTransferred = queued.TotalBytes;
+            queued.State = "Completed";
+            LogText.AppendText($"{Environment.NewLine}XDUPE skipped queued duplicate: {queued.Name}");
         }
     }
 
@@ -878,24 +930,101 @@ public partial class MainWindow : Window
         await using var monitor = await CreateWorkerAsync(destinationProfile, cancellationToken);
         long previousBytes = 0;
         var previousAt = DateTime.UtcNow;
+        var hasSizeBaseline = false;
+        bool? ioGuiExtAvailable = null;
         while (true)
         {
-            await Task.Delay(1000, cancellationToken);
+            await Task.Delay(250, cancellationToken);
+            // ioFTPD commonly preallocates the complete destination file, so SIZE
+            // cannot reveal live FXP progress. ioGuiExt exposes the same transfer
+            // counter and speed that ioGUI uses; prefer it when available.
+            try
+            {
+                var activity = await monitor.ExecuteCommandAsync("SITE ioGuiExt who", cancellationToken);
+                ioGuiExtAvailable = activity.StatusCode is >= 200 and < 300;
+                if (ioGuiExtAvailable == true)
+                {
+                    if (TryReadIoFtpdTransfer(activity.Message, entry, out var transferred, out var speed))
+                    {
+                        if (transferred >= 0) entry.BytesTransferred = transferred;
+                        // ioFTPD briefly reports zero while changing internal state.
+                        // Retain the latest valid sample rather than flashing 0 B/s.
+                        if (speed > 0) entry.SpeedBytesPerSecond = speed;
+                    }
+                    continue;
+                }
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Not every FTP server has ioGuiExt; fall through to SIZE polling.
+            }
+
             var bytes = await monitor.GetSizeAsync(entry.Destination, cancellationToken);
             if (bytes is null) continue;
             var now = DateTime.UtcNow;
+            if (!hasSizeBaseline)
+            {
+                previousBytes = bytes.Value;
+                previousAt = now;
+                hasSizeBaseline = true;
+                continue;
+            }
             var seconds = Math.Max((now - previousAt).TotalSeconds, 0.001);
-            entry.SpeedBytesPerSecond = Math.Max(0, (long)((bytes.Value - previousBytes) / seconds));
+            var measuredSpeed = Math.Max(0, (long)((bytes.Value - previousBytes) / seconds));
+            if (measuredSpeed > 0 || ioGuiExtAvailable == false) entry.SpeedBytesPerSecond = measuredSpeed;
             entry.BytesTransferred = bytes.Value;
             previousBytes = bytes.Value;
             previousAt = now;
         }
     }
 
+    private static bool TryReadIoFtpdTransfer(string response, QueueEntryView entry, out long transferred, out long speed)
+    {
+        transferred = -1;
+        speed = 0;
+        var fileName = entry.Name;
+        foreach (var line in response.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var payload = line.Length > 4 && char.IsDigit(line[0]) && char.IsDigit(line[1]) && char.IsDigit(line[2])
+                ? line[4..].Trim()
+                : line.Trim();
+            if (!payload.StartsWith("cid |", StringComparison.OrdinalIgnoreCase)) continue;
+            var parts = payload.Split('|').Select(part => part.Trim()).ToArray();
+            if (parts.Length < 19 || parts[16] == "0") continue;
+            var identity = $"{parts[10]} {parts[12]} {parts[13]}";
+            if (!identity.Contains(fileName, StringComparison.OrdinalIgnoreCase)) continue;
+
+            if (long.TryParse(parts[17], NumberStyles.Integer, CultureInfo.InvariantCulture, out var bytes))
+                transferred = bytes;
+            speed = ParseIoFtpdSpeed(parts[18]);
+            return true;
+        }
+        return false;
+    }
+
+    private static long ParseIoFtpdSpeed(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return 0;
+        var normalized = value.Trim().Replace(',', '.');
+        var number = new string(normalized.TakeWhile(ch => char.IsDigit(ch) || ch == '.').ToArray());
+        if (!double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out var amount)) return 0;
+        var unit = normalized[number.Length..].Trim().ToLowerInvariant();
+        var multiplier = unit.StartsWith("g") ? 1024d * 1024 * 1024
+            : unit.StartsWith("m") ? 1024d * 1024
+            : unit.StartsWith("b") ? 1d
+            : 1024d; // ioFTPD TRANSFERSPEED without a suffix is KiB/s.
+        return Math.Max(0, (long)(amount * multiplier));
+    }
+
     private static async Task<FtpRemoteSession> CreateWorkerAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
         var session = new FtpRemoteSession();
-        try { await session.ConnectAsync(profile, cancellationToken); return session; }
+        try
+        {
+            await session.ConnectAsync(profile, cancellationToken);
+            new ProfileStore().PromoteAddress(profile.Id, session.ConnectedHost, session.ConnectedPort);
+            return session;
+        }
         catch { await session.DisposeAsync(); throw; }
     }
 
@@ -1330,7 +1459,8 @@ public partial class MainWindow : Window
         public TransferDirection Direction { get; } = direction;
         public Guid Id { get; } = id ?? Guid.NewGuid();
         public long TotalBytes { get; set; } = totalBytes;
-        public long SpeedBytesPerSecond { get; set; }
+        private long _speedBytesPerSecond;
+        public long SpeedBytesPerSecond { get => _speedBytesPerSecond; set { _speedBytesPerSecond = value; Changed(); } }
         public Guid? SourceProfileId { get; set; }
         public DateTime LastPersistedAt { get; set; }
         public string State { get => _state; set { _state = value; Changed(); } }

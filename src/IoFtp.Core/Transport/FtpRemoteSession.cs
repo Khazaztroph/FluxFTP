@@ -20,6 +20,8 @@ public sealed class FtpRemoteSession : IRemoteSession
     private bool _protectData = true;
 
     public bool IsConnected { get; private set; }
+    public string ConnectedHost { get; private set; } = "";
+    public int ConnectedPort { get; private set; }
     public IReadOnlySet<string> Capabilities { get; private set; } = new HashSet<string>();
     public string LastFxpNegotiation { get; private set; } = "None";
 
@@ -31,7 +33,9 @@ public sealed class FtpRemoteSession : IRemoteSession
         _profile = profile;
         // Prefer IPv4 for FTP/FXP. A dual-stack DNS result could otherwise make
         // the control connection IPv6, while PORT/CPSV secure FXP is IPv4-only.
-        _controlClient = await ProxyConnector.ConnectAsync(profile.Host, profile.Port, profile.Proxy, cancellationToken);
+        (_controlClient, var connectedEndpoint) = await ConnectToFirstAddressAsync(profile, cancellationToken);
+        ConnectedHost = connectedEndpoint.Host;
+        ConnectedPort = connectedEndpoint.Port;
         _controlStream = _controlClient.GetStream();
 
         if (profile.Protocol == TransferProtocol.FtpsImplicit)
@@ -64,6 +68,9 @@ public sealed class FtpRemoteSession : IRemoteSession
         if (profile.EffectiveOptions.ForceBinaryMode)
             EnsureSuccess(await CommandAsync("TYPE I", cancellationToken), 200);
 
+        if (profile.EffectiveOptions.UseXdupe)
+            EnsureSuccess(await CommandAsync("SITE XDUPE 3", cancellationToken), 200);
+
         IsConnected = true;
         var capabilities = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "LIST", "RETR", "STOR", "PASV" };
         var features = await CommandAsync("FEAT", cancellationToken);
@@ -78,6 +85,32 @@ public sealed class FtpRemoteSession : IRemoteSession
         Capabilities = capabilities;
     }
 
+    private static async Task<(TcpClient Client, SiteEndpoint Endpoint)> ConnectToFirstAddressAsync(ConnectionProfile profile, CancellationToken cancellationToken)
+    {
+        using var race = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var attempts = profile.EffectiveAddresses.Select((endpoint, index) => Task.Run(async () =>
+        {
+            if (index > 0) await Task.Delay(TimeSpan.FromSeconds(1), race.Token);
+            var client = await ProxyConnector.ConnectAsync(endpoint.Host, endpoint.Port, profile.Proxy, race.Token);
+            return (client, endpoint);
+        }, CancellationToken.None)).ToList();
+        Exception? lastError = null;
+        while (attempts.Count > 0)
+        {
+            var completed = await Task.WhenAny(attempts); attempts.Remove(completed);
+            try
+            {
+                var result = await completed;
+                race.Cancel();
+                foreach (var pending in attempts)
+                    _ = pending.ContinueWith(task => { if (task.Status == TaskStatus.RanToCompletion) task.Result.client.Dispose(); }, TaskScheduler.Default);
+                return (result.client, result.endpoint);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested) { lastError = exception; }
+        }
+        throw new IOException("None of the configured site addresses could be reached.", lastError);
+    }
+
     public async Task FxpToAsync(FtpRemoteSession destination, string sourcePath, string destinationPath, CancellationToken cancellationToken)
     {
         EnsureConnected(); destination.EnsureConnected();
@@ -85,23 +118,37 @@ public sealed class FtpRemoteSession : IRemoteSession
 
         var secureFxp = _profile!.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit;
         var usedCpsv = false;
+        await PrepareDataCommandAsync($"RETR {sourcePath}", cancellationToken);
+        await destination.PrepareDataCommandAsync($"STOR {destinationPath}", cancellationToken);
         FtpResponse passive;
-        if (secureFxp && destination.Capabilities.Contains("CPSV"))
+        (string Host, int Port) advertised;
+        if (destination._profile!.EffectiveOptions.CeprSupported)
+        {
+            passive = await destination.CommandAsync("EPSV", cancellationToken);
+            EnsureSuccess(passive, 229);
+            advertised = ParseExtendedPassiveEndpoint(passive.Message, destination._profile.Host, true);
+        }
+        else if (secureFxp && destination.Capabilities.Contains("CPSV"))
         {
             passive = await destination.CommandAsync("CPSV", cancellationToken);
             usedCpsv = passive.Code == 227;
             if (!usedCpsv) passive = await destination.CommandAsync("PASV", cancellationToken);
+            EnsureSuccess(passive, 227);
+            advertised = ParsePassiveEndpoint(passive.Message);
         }
-        else passive = await destination.CommandAsync("PASV", cancellationToken);
-        EnsureSuccess(passive, 227);
-        var advertised = ParsePassiveEndpoint(passive.Message);
+        else
+        {
+            passive = await destination.CommandAsync("PASV", cancellationToken);
+            EnsureSuccess(passive, 227);
+            advertised = ParsePassiveEndpoint(passive.Message);
+        }
         // For FXP the source server must connect to the address explicitly
         // advertised by the passive destination. This may be its public/NAT
         // address and is intentionally not the control connection address.
         if (!IPAddress.TryParse(advertised.Host, out var destinationAddress))
             throw new IOException("The passive FXP server returned an invalid address.");
-        if (destinationAddress.AddressFamily != AddressFamily.InterNetwork)
-            throw new NotSupportedException("Direct FXP currently requires IPv4 servers.");
+        if (destinationAddress.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
+            throw new NotSupportedException("The passive FXP server returned an unsupported address family.");
 
         if (secureFxp && usedCpsv)
         {
@@ -122,8 +169,16 @@ public sealed class FtpRemoteSession : IRemoteSession
         }
         else LastFxpNegotiation = "PASV";
 
-        var bytes = destinationAddress.GetAddressBytes();
-        EnsureSuccess(await CommandAsync($"PORT {string.Join(',', bytes)},{advertised.Port / 256},{advertised.Port % 256}", cancellationToken), 200);
+        if (destinationAddress.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (!Capabilities.Contains("EPRT")) throw new NotSupportedException("IPv6 FXP requires EPRT support on the source server.");
+            EnsureSuccess(await CommandAsync($"EPRT |2|{destinationAddress}|{advertised.Port}|", cancellationToken), 200);
+        }
+        else
+        {
+            var bytes = destinationAddress.GetAddressBytes();
+            EnsureSuccess(await CommandAsync($"PORT {string.Join(',', bytes)},{advertised.Port / 256},{advertised.Port % 256}", cancellationToken), 200);
+        }
 
         var store = await destination.CommandAsync($"STOR {destinationPath}", cancellationToken);
         EnsureSuccess(store, 125, 150);
@@ -185,6 +240,7 @@ public sealed class FtpRemoteSession : IRemoteSession
                 throw new FtpCommandException(stat.Code, stat.Message);
         }
 
+        await PrepareDataCommandAsync($"LIST {path}", cancellationToken);
         var endpoint = await OpenPassiveEndpointAsync(cancellationToken);
 
         TcpClient dataClient;
@@ -302,6 +358,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         TcpClient? dataClient = null;
         try
         {
+            await PrepareDataCommandAsync(command, cancellationToken);
             var endpoint = await OpenPassiveEndpointAsync(cancellationToken);
             using var passiveTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             passiveTimeout.CancelAfter(TimeSpan.FromSeconds(5));
@@ -340,6 +397,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         var listener = new TcpListener(localEndpoint.Address, 0); listener.Start();
         try
         {
+            await PrepareDataCommandAsync(command, cancellationToken);
             var port = ((IPEndPoint)listener.LocalEndpoint).Port; var address = localEndpoint.Address.GetAddressBytes();
             EnsureSuccess(await CommandAsync($"PORT {string.Join(',', address)},{port / 256},{port % 256}", cancellationToken), 200);
             if (offset > 0) EnsureSuccess(await CommandAsync($"REST {offset}", cancellationToken), 350);
@@ -362,6 +420,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         listener.Start();
         try
         {
+            await PrepareDataCommandAsync($"LIST {path}", cancellationToken);
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
             var address = localEndpoint.Address.GetAddressBytes();
             EnsureSuccess(await CommandAsync($"PORT {string.Join(',', address)},{port / 256},{port % 256}", cancellationToken), 200);
@@ -386,7 +445,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         var ssl = new SslStream(stream, false, ValidateCertificate);
         await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
         {
-            TargetHost = _profile.Host,
+            TargetHost = string.IsNullOrWhiteSpace(ConnectedHost) ? _profile.Host : ConnectedHost,
             EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
         }, cancellationToken);
         return ssl;
@@ -461,7 +520,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         // avoiding the unusable private addresses many FTP servers advertise in PASV.
         var extended = await CommandAsync("EPSV", cancellationToken);
         if (extended.Code == 229)
-            return (_profile!.Host, ParseExtendedPassivePort(extended.Message));
+            return ParseExtendedPassiveEndpoint(extended.Message, _profile!.Host, _profile.EffectiveOptions.CeprSupported);
 
         var passive = await CommandAsync("PASV", cancellationToken);
         EnsureSuccess(passive, 227);
@@ -469,6 +528,13 @@ public sealed class FtpRemoteSession : IRemoteSession
         // When connecting through localhost, never replace it with a server-advertised LAN address.
         var host = _profile!.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ? _profile.Host : advertised.Host;
         return (host, advertised.Port);
+    }
+
+    private async Task PrepareDataCommandAsync(string command, CancellationToken cancellationToken)
+    {
+        if (_profile?.EffectiveOptions.NeedsPret != true) return;
+        var response = await CommandAsync($"PRET {command}", cancellationToken);
+        EnsureSuccess(response, 200);
     }
 
     private static async Task<IPAddress> ResolveIpv4Async(string host, CancellationToken cancellationToken)
@@ -503,7 +569,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         var ssl = new SslStream(_controlStream!, false, ValidateCertificate);
         await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
         {
-            TargetHost = _profile!.Host,
+            TargetHost = string.IsNullOrWhiteSpace(ConnectedHost) ? _profile!.Host : ConnectedHost,
             EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
         }, cancellationToken);
         _controlStream = ssl;
@@ -554,14 +620,18 @@ public sealed class FtpRemoteSession : IRemoteSession
         return ($"{values[0]}.{values[1]}.{values[2]}.{values[3]}", values[4] * 256 + values[5]);
     }
 
-    private static int ParseExtendedPassivePort(string response)
+    private static (string Host, int Port) ParseExtendedPassiveEndpoint(string response, string fallbackHost, bool useCustomAddress)
     {
         var start = response.IndexOf('('); var end = response.IndexOf(')', start + 1);
         if (start < 0 || end < 0) throw new IOException("Server returned an invalid extended passive-mode address.");
-        var fields = response[(start + 1)..end].Split('|', StringSplitOptions.RemoveEmptyEntries);
-        if (fields.Length != 1 || !int.TryParse(fields[0], out var port) || port is < 1 or > 65535)
+        var body = response[(start + 1)..end];
+        if (body.Length < 5) throw new IOException("Server returned an invalid extended passive-mode address.");
+        var fields = body.Split(body[0], StringSplitOptions.RemoveEmptyEntries);
+        var portText = fields.LastOrDefault();
+        if (portText is null || !int.TryParse(portText, out var port) || port is < 1 or > 65535)
             throw new IOException("Server returned an invalid extended passive-mode port.");
-        return port;
+        var host = useCustomAddress && fields.Length >= 3 && !string.IsNullOrWhiteSpace(fields[^2]) ? fields[^2] : fallbackHost;
+        return (host, port);
     }
 
     private void EnsureConnected() { if (!IsConnected) throw new InvalidOperationException("The remote session is not connected."); }

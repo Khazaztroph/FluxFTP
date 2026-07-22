@@ -13,7 +13,7 @@
         <TextBlock Grid.ColumnSpan="2" Text="Connection details" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,18"/>
         <TextBlock Grid.Row="1" Text="Name" VerticalAlignment="Center"/><TextBox x:Name="NameBox" Grid.Row="1" Grid.Column="1" Margin="0,3"/>
         <TextBlock Grid.Row="2" Text="Protocol" VerticalAlignment="Center"/><ComboBox x:Name="ProtocolBox" Grid.Row="2" Grid.Column="1" Margin="0,3" Padding="7,4" SelectionChanged="Protocol_Changed"/>
-        <TextBlock Grid.Row="3" Text="Host" VerticalAlignment="Center"/><TextBox x:Name="HostBox" Grid.Row="3" Grid.Column="1" Margin="0,3"/>
+        <TextBlock Grid.Row="3" Text="Address(es)" VerticalAlignment="Center"/><TextBox x:Name="HostBox" Grid.Row="3" Grid.Column="1" Margin="0,3" ToolTip="One or more addresses separated by spaces. Each may include :port, for example bnc1:5000 bnc2:5000 ftp.site:21"/>
         <TextBlock Grid.Row="4" Text="Port" VerticalAlignment="Center"/><TextBox x:Name="PortBox" Grid.Row="4" Grid.Column="1" Margin="0,3"/>
         <TextBlock Grid.Row="5" Text="Username" VerticalAlignment="Center"/><TextBox x:Name="UsernameBox" Grid.Row="5" Grid.Column="1" Margin="0,3"/>
         <TextBlock Grid.Row="6" Text="Password" VerticalAlignment="Center"/><PasswordBox x:Name="PasswordBox" Grid.Row="6" Grid.Column="1" Margin="0,3" Padding="8,5"/>

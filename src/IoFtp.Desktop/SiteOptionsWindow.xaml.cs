@@ -17,6 +17,9 @@ public partial class SiteOptionsWindow : Window
         StayLoggedInBox.IsChecked = options.StayLoggedIn; BasePathBox.Text = options.BasePath; TlsTransfersBox.IsChecked = options.PreferTlsTransfers;
         BinaryModeBox.IsChecked = options.ForceBinaryMode; IdleBox.Text = options.MaxIdleSeconds.ToString();
         SecureListingsBox.IsChecked = options.SecureFileListings;
+        NeedsPretBox.IsChecked = options.NeedsPret;
+        CeprBox.IsChecked = options.CeprSupported;
+        XdupeBox.IsChecked = options.UseXdupe;
         BlockFromBox.Text = options.BlockTransfersFrom; BlockToBox.Text = options.BlockTransfersTo;
     }
 
@@ -30,7 +33,8 @@ public partial class SiteOptionsWindow : Window
         { ErrorText.Text = "Upload and download slot limits cannot exceed total slots."; return; }
         Options = new SiteOptions(slots, uploads, downloads, priority, AllowUploadBox.IsChecked == true, AllowDownloadBox.IsChecked == true,
             StayLoggedInBox.IsChecked == true, string.IsNullOrWhiteSpace(BasePathBox.Text) ? "/" : BasePathBox.Text.Trim(),
-            TlsTransfersBox.IsChecked == true, BinaryModeBox.IsChecked == true, idle, BlockFromBox.Text.Trim(), BlockToBox.Text.Trim(), SecureListingsBox.IsChecked == true);
+            TlsTransfersBox.IsChecked == true, BinaryModeBox.IsChecked == true, idle, BlockFromBox.Text.Trim(), BlockToBox.Text.Trim(), SecureListingsBox.IsChecked == true,
+            NeedsPretBox.IsChecked == true, CeprBox.IsChecked == true, XdupeBox.IsChecked == true);
         DialogResult = true;
     }
 

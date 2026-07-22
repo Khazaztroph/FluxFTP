@@ -36,7 +36,10 @@ public sealed record SiteOptions(
     int MaxIdleSeconds = 60,
     string BlockTransfersFrom = "",
     string BlockTransfersTo = "",
-    bool SecureFileListings = true);
+    bool SecureFileListings = true,
+    bool NeedsPret = false,
+    bool CeprSupported = false,
+    bool UseXdupe = false);
 
 public sealed record ConnectionProfile(
     Guid Id,
@@ -49,7 +52,45 @@ public sealed record ConnectionProfile(
     bool AllowInvalidCertificate = false,
     DirectoryListingMode ListingMode = DirectoryListingMode.StatThenList,
     SiteOptions? Options = null,
-    ProxyConfiguration? Proxy = null)
+    ProxyConfiguration? Proxy = null,
+    string AlternateAddresses = "")
 {
     [JsonIgnore] public SiteOptions EffectiveOptions => Options ?? new SiteOptions();
+    [JsonIgnore] public IReadOnlyList<SiteEndpoint> EffectiveAddresses
+    {
+        get
+        {
+            var result = new List<SiteEndpoint> { new(Host, Port) };
+            foreach (var token in AlternateAddresses.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                if (SiteEndpoint.TryParse(token, Port, out var endpoint) && !result.Contains(endpoint)) result.Add(endpoint);
+            return result;
+        }
+    }
+}
+
+public sealed record SiteEndpoint(string Host, int Port)
+{
+    public override string ToString() => Host.Contains(':') ? $"[{Host}]:{Port}" : $"{Host}:{Port}";
+
+    public static bool TryParse(string value, int defaultPort, out SiteEndpoint endpoint)
+    {
+        endpoint = new("", defaultPort);
+        var text = value.Trim();
+        if (text.Length == 0) return false;
+        string host; var port = defaultPort;
+        if (text.StartsWith('[') && text.IndexOf(']') is var close && close > 0)
+        {
+            host = text[1..close];
+            if (close + 1 < text.Length && (!text[(close + 1)..].StartsWith(':') || !int.TryParse(text[(close + 2)..], out port))) return false;
+        }
+        else
+        {
+            var separator = text.LastIndexOf(':');
+            if (separator > 0 && text.Count(ch => ch == ':') == 1 && int.TryParse(text[(separator + 1)..], out var parsed))
+            { host = text[..separator]; port = parsed; }
+            else host = text;
+        }
+        if (host.Length == 0 || port is < 1 or > 65535) return false;
+        endpoint = new(host, port); return true;
+    }
 }

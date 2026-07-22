@@ -200,24 +200,39 @@ internal sealed class ApiServer : IAsyncDisposable
     private static string ResolvePath(string site, string path) => path.StartsWith('/') ? path : FindSection(path) is { } section && SitePath(section, site) is { } sectionPath ? sectionPath : path;
     private static object ToApiSection(SectionDefinition section) => new { name = section.Name, hotkey = section.Hotkey, num_jobs = 0,
         sites = section.SitePaths.Select(pair => new { site = pair.Key, path = pair.Value }) };
-    private static object ToApiSite(ConnectionProfile profile) => new { name = profile.Name, addresses = new[] { $"{profile.Host}:{profile.Port}" }, user = profile.Username,
+    private static object ToApiSite(ConnectionProfile profile) => new { name = profile.Name, addresses = profile.EffectiveAddresses.Select(address => address.ToString()).ToArray(), user = profile.Username,
         base_path = profile.EffectiveOptions.BasePath, tls_mode = profile.Protocol == TransferProtocol.FtpsImplicit ? "IMPLICIT" : profile.Protocol == TransferProtocol.FtpsExplicit ? "AUTH_TLS" : "NONE",
         list_command = profile.ListingMode == DirectoryListingMode.ListOnly ? "LIST" : "STAT_L", max_logins = profile.EffectiveOptions.MaxSlots,
-        max_sim_up = profile.EffectiveOptions.MaxUploadSlots, max_sim_down = profile.EffectiveOptions.MaxDownloadSlots, priority = profile.EffectiveOptions.Priority };
+        max_sim_up = profile.EffectiveOptions.MaxUploadSlots, max_sim_down = profile.EffectiveOptions.MaxDownloadSlots,
+        priority = profile.EffectiveOptions.Priority, needs_pret = profile.EffectiveOptions.NeedsPret,
+        cepr_supported = profile.EffectiveOptions.CeprSupported, use_xdupe = profile.EffectiveOptions.UseXdupe };
     private static ConnectionProfile CreateProfile(SiteRequest request)
     {
-        ParseAddress(request.Addresses![0], out var host, out var port);
-        var protocol = ParseTls(request.TlsMode); var options = new SiteOptions(request.MaxLogins ?? 3, request.MaxSimUp ?? 3, request.MaxSimDown ?? 2,
-            request.Priority ?? 0, BasePath: request.BasePath ?? "/");
-        return new(Guid.NewGuid(), request.Name!, host, port ?? (protocol == TransferProtocol.FtpsImplicit ? 990 : 21), request.User ?? "anonymous", protocol,
-            request.Password ?? "", ListingMode: request.ListCommand?.Equals("LIST", StringComparison.OrdinalIgnoreCase) == true ? DirectoryListingMode.ListOnly : DirectoryListingMode.StatThenList, Options: options);
+        var protocol = ParseTls(request.TlsMode); var defaultPort = protocol == TransferProtocol.FtpsImplicit ? 990 : 21;
+        if (!SiteEndpoint.TryParse(request.Addresses![0], defaultPort, out var primary)) throw new ArgumentException("Invalid primary site address.");
+        var alternates = request.Addresses.Skip(1).Select(value => SiteEndpoint.TryParse(value, defaultPort, out var endpoint) ? endpoint : throw new ArgumentException($"Invalid site address: {value}"));
+        var options = new SiteOptions(request.MaxLogins ?? 3, request.MaxSimUp ?? 3, request.MaxSimDown ?? 2,
+            request.Priority ?? 0, BasePath: request.BasePath ?? "/", NeedsPret: request.NeedsPret ?? false, CeprSupported: request.CeprSupported ?? false,
+            UseXdupe: request.UseXdupe ?? false);
+        return new(Guid.NewGuid(), request.Name!, primary.Host, primary.Port, request.User ?? "anonymous", protocol,
+            request.Password ?? "", ListingMode: request.ListCommand?.Equals("LIST", StringComparison.OrdinalIgnoreCase) == true ? DirectoryListingMode.ListOnly : DirectoryListingMode.StatThenList,
+            Options: options, AlternateAddresses: string.Join(' ', alternates));
     }
     private static ConnectionProfile PatchProfile(ConnectionProfile profile, SiteRequest request)
     {
-        var host = profile.Host; int? port = profile.Port; if (request.Addresses is { Count: > 0 }) ParseAddress(request.Addresses[0], out host, out port);
+        var host = profile.Host; var port = profile.Port; var alternateAddresses = profile.AlternateAddresses;
+        if (request.Addresses is { Count: > 0 })
+        {
+            if (!SiteEndpoint.TryParse(request.Addresses[0], profile.Port, out var primary)) throw new ArgumentException("Invalid primary site address.");
+            host = primary.Host; port = primary.Port;
+            alternateAddresses = string.Join(' ', request.Addresses.Skip(1).Select(value => SiteEndpoint.TryParse(value, port, out var endpoint) ? endpoint : throw new ArgumentException($"Invalid site address: {value}")));
+        }
         var options = profile.EffectiveOptions with { BasePath = request.BasePath ?? profile.EffectiveOptions.BasePath, MaxSlots = request.MaxLogins ?? profile.EffectiveOptions.MaxSlots,
-            MaxUploadSlots = request.MaxSimUp ?? profile.EffectiveOptions.MaxUploadSlots, MaxDownloadSlots = request.MaxSimDown ?? profile.EffectiveOptions.MaxDownloadSlots, Priority = request.Priority ?? profile.EffectiveOptions.Priority };
-        return profile with { Name = request.Name ?? profile.Name, Host = host, Port = port ?? profile.Port, Username = request.User ?? profile.Username,
+            MaxUploadSlots = request.MaxSimUp ?? profile.EffectiveOptions.MaxUploadSlots, MaxDownloadSlots = request.MaxSimDown ?? profile.EffectiveOptions.MaxDownloadSlots,
+            Priority = request.Priority ?? profile.EffectiveOptions.Priority, NeedsPret = request.NeedsPret ?? profile.EffectiveOptions.NeedsPret,
+            CeprSupported = request.CeprSupported ?? profile.EffectiveOptions.CeprSupported,
+            UseXdupe = request.UseXdupe ?? profile.EffectiveOptions.UseXdupe };
+        return profile with { Name = request.Name ?? profile.Name, Host = host, Port = port, AlternateAddresses = alternateAddresses, Username = request.User ?? profile.Username,
             Password = request.Password ?? profile.Password, Protocol = request.TlsMode is null ? profile.Protocol : ParseTls(request.TlsMode),
             ListingMode = request.ListCommand is null ? profile.ListingMode : request.ListCommand.Equals("LIST", StringComparison.OrdinalIgnoreCase) ? DirectoryListingMode.ListOnly : DirectoryListingMode.StatThenList, Options = options };
     }
@@ -246,7 +261,10 @@ internal sealed class ApiServer : IAsyncDisposable
         [property: JsonPropertyName("list_command")] string? ListCommand = null,
         [property: JsonPropertyName("max_logins")] int? MaxLogins = null,
         [property: JsonPropertyName("max_sim_up")] int? MaxSimUp = null,
-        [property: JsonPropertyName("max_sim_down")] int? MaxSimDown = null, int? Priority = null);
+        [property: JsonPropertyName("max_sim_down")] int? MaxSimDown = null, int? Priority = null,
+        [property: JsonPropertyName("needs_pret")] bool? NeedsPret = null,
+        [property: JsonPropertyName("cepr_supported")] bool? CeprSupported = null,
+        [property: JsonPropertyName("use_xdupe")] bool? UseXdupe = null);
     private sealed record RawRequest(string? Command = null, string[]? Sites = null,
         [property: JsonPropertyName("sites_all")] bool SitesAll = false, string? Path = null,
         [property: JsonPropertyName("path_section")] string? PathSection = null, int? Timeout = null);

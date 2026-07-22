@@ -31,14 +31,17 @@
                 <TabItem Header="Connection behavior">
                     <Grid Margin="16">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="190"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <TextBlock Text="Base path" VerticalAlignment="Center"/><TextBox x:Name="BasePathBox" Grid.Column="1" Margin="0,4"/>
                         <TextBlock Grid.Row="1" Text="Max idle time (seconds)" VerticalAlignment="Center"/><TextBox x:Name="IdleBox" Grid.Row="1" Grid.Column="1" Margin="0,4"/>
                         <CheckBox x:Name="StayLoggedInBox" Grid.Row="2" Grid.ColumnSpan="2" Content="Stay logged in for browsing" Margin="0,8,0,2"/>
                         <CheckBox x:Name="TlsTransfersBox" Grid.Row="3" Grid.ColumnSpan="2" Content="Prefer secure TLS data transfers" Margin="0,2"/>
                         <CheckBox x:Name="SecureListingsBox" Grid.Row="4" Grid.ColumnSpan="2" Content="Secure file listings (PROT P)" Margin="0,2" ToolTip="Disable for ProFTPD servers that reset TLS LIST data connections. Transfers remain encrypted."/>
                         <CheckBox x:Name="BinaryModeBox" Grid.Row="5" Grid.ColumnSpan="2" Content="Force binary transfer mode" Margin="0,2"/>
-                        <TextBlock Grid.Row="6" Grid.ColumnSpan="2" Margin="0,16,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Text="Directory listing mode and TLS certificate policy are configured in Connection details."/>
+                        <CheckBox x:Name="NeedsPretBox" Grid.Row="6" Grid.ColumnSpan="2" Content="Needs PRET (DrFTPD/distributed servers)" Margin="0,2" ToolTip="Send PRET before LIST, RETR and STOR data commands. Enable for DrFTPD; leave disabled for normal FTP servers."/>
+                        <CheckBox x:Name="CeprBox" Grid.Row="7" Grid.ColumnSpan="2" Content="CEPR supported (custom EPSV address)" Margin="0,2" ToolTip="Use the address included in a custom EPSV reply. Enable only for compatible sites, FTP bouncers or a separate data address."/>
+                        <CheckBox x:Name="XdupeBox" Grid.Row="8" Grid.ColumnSpan="2" Content="Use XDUPE (multi-file duplicate list)" Margin="0,2" ToolTip="Send SITE XDUPE 3 after login. Enable only on servers that support the XDUPE extension."/>
+                        <TextBlock Grid.Row="9" Grid.ColumnSpan="2" Margin="0,16,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Text="Directory listing mode and TLS certificate policy are configured in Connection details."/>
                     </Grid>
                 </TabItem>
             </TabControl>

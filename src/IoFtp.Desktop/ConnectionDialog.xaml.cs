@@ -30,7 +30,7 @@ public partial class ConnectionDialog : Window
         {
             NameBox.Text = profile.Name;
             ProtocolBox.SelectedItem = profile.Protocol;
-            HostBox.Text = profile.Host;
+            HostBox.Text = string.Join(' ', profile.EffectiveAddresses.Select(address => address.ToString()));
             PortBox.Text = profile.Port.ToString();
             UsernameBox.Text = profile.Username;
             PasswordBox.Password = profile.Password;
@@ -63,8 +63,8 @@ public partial class ConnectionDialog : Window
     private void Accept_Click(object sender, RoutedEventArgs e)
     {
         var name = NameBox.Text.Trim();
-        var host = HostBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(host))
+        var addressText = HostBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(addressText))
         {
             ErrorText.Text = "Name and host are required.";
             return;
@@ -74,12 +74,23 @@ public partial class ConnectionDialog : Window
             ErrorText.Text = "Port must be a number between 1 and 65535.";
             return;
         }
+        var addresses = new List<SiteEndpoint>();
+        foreach (var token in addressText.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!SiteEndpoint.TryParse(token, port, out var endpoint))
+            { ErrorText.Text = $"Invalid site address: {token}"; return; }
+            if (!addresses.Contains(endpoint)) addresses.Add(endpoint);
+        }
+        if (addresses.Count == 0) { ErrorText.Text = "At least one site address is required."; return; }
         var listingMode = ((ListingModeOption)ListingModeBox.SelectedItem).Mode;
         var remotePath = RemotePathBox.Text.Trim().Replace('\\', '/');
         if (string.IsNullOrWhiteSpace(remotePath)) remotePath = "/";
         if (!remotePath.StartsWith('/')) remotePath = "/" + remotePath;
         var options = (_options ?? new SiteOptions()) with { BasePath = remotePath };
-        Profile = new ConnectionProfile(_id, name, host, port, UsernameBox.Text.Trim(), (TransferProtocol)ProtocolBox.SelectedItem, PasswordBox.Password, AllowInvalidCertificateBox.IsChecked == true, listingMode, options);
+        var primary = addresses[0];
+        Profile = new ConnectionProfile(_id, name, primary.Host, primary.Port, UsernameBox.Text.Trim(), (TransferProtocol)ProtocolBox.SelectedItem,
+            PasswordBox.Password, AllowInvalidCertificateBox.IsChecked == true, listingMode, options,
+            AlternateAddresses: string.Join(' ', addresses.Skip(1).Select(address => address.ToString())));
         DialogResult = true;
     }
 

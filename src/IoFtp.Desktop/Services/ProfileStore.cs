@@ -8,6 +8,7 @@ namespace IoFtp.Desktop.Services;
 
 internal sealed class ProfileStore
 {
+    private static readonly object AddressOrderGate = new();
     private readonly string _path = Path.Combine(AppContext.BaseDirectory, "FluxFTP-sites.ini");
     private readonly string _oldIniPath = Path.Combine(AppContext.BaseDirectory, "ioFTP-sites.ini");
     private readonly string _legacyPath = Path.Combine(
@@ -44,6 +45,7 @@ internal sealed class ProfileStore
             Write(text, "Name", profile.Name);
             Write(text, "Host", profile.Host);
             Write(text, "Port", profile.Port);
+            Write(text, "AlternateAddresses", profile.AlternateAddresses);
             Write(text, "Username", profile.Username);
             Write(text, "Password", Protect(profile.Password));
             Write(text, "Protocol", profile.Protocol);
@@ -63,6 +65,9 @@ internal sealed class ProfileStore
             Write(text, "BlockTransfersFrom", options.BlockTransfersFrom);
             Write(text, "BlockTransfersTo", options.BlockTransfersTo);
             Write(text, "SecureFileListings", options.SecureFileListings);
+            Write(text, "NeedsPret", options.NeedsPret);
+            Write(text, "CeprSupported", options.CeprSupported);
+            Write(text, "UseXdupe", options.UseXdupe);
         }
 
         var temporaryPath = _path + ".tmp";
@@ -84,10 +89,11 @@ internal sealed class ProfileStore
                 Int(values, "Priority"), Bool(values, "AllowUpload", true), Bool(values, "AllowDownload", true),
                 Bool(values, "StayLoggedIn"), Get(values, "BasePath", "/"), Bool(values, "PreferTlsTransfers", true),
                 Bool(values, "ForceBinaryMode", true), Int(values, "MaxIdleSeconds", 60),
-                Get(values, "BlockTransfersFrom"), Get(values, "BlockTransfersTo"), Bool(values, "SecureFileListings", true));
+                Get(values, "BlockTransfersFrom"), Get(values, "BlockTransfersTo"), Bool(values, "SecureFileListings", true), Bool(values, "NeedsPret"), Bool(values, "CeprSupported"), Bool(values, "UseXdupe"));
             result.Add(new ConnectionProfile(id, Get(values, "Name", "Site"), Get(values, "Host"), Int(values, "Port", 21),
                 Get(values, "Username"), EnumValue(values, "Protocol", TransferProtocol.Ftp), Unprotect(Get(values, "Password")),
-                Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.StatThenList), options));
+                Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.StatThenList), options,
+                AlternateAddresses: Get(values, "AlternateAddresses")));
         }
 
         foreach (var rawLine in File.ReadLines(path))
@@ -106,6 +112,28 @@ internal sealed class ProfileStore
         }
         AddCurrent();
         return result;
+    }
+
+    public void PromoteAddress(Guid profileId, string host, int port)
+    {
+        if (profileId == Guid.Empty || string.IsNullOrWhiteSpace(host)) return;
+        lock (AddressOrderGate)
+        {
+            var profiles = Load().ToList();
+            var index = profiles.FindIndex(profile => profile.Id == profileId);
+            if (index < 0) return;
+            var profile = profiles[index];
+            var winner = new SiteEndpoint(host, port);
+            var ordered = new[] { winner }.Concat(profile.EffectiveAddresses.Where(address => address != winner)).ToList();
+            if (ordered[0].Host == profile.Host && ordered[0].Port == profile.Port) return;
+            profiles[index] = profile with
+            {
+                Host = winner.Host,
+                Port = winner.Port,
+                AlternateAddresses = string.Join(' ', ordered.Skip(1).Select(address => address.ToString()))
+            };
+            Save(profiles);
+        }
     }
 
     private static void Write(StringBuilder target, string key, object? value) =>

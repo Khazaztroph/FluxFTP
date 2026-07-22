@@ -11,8 +11,10 @@ public static class ProxyConnector
     {
         if (proxy is null || proxy.Type == ProxyType.None)
         {
-            var address = (await Dns.GetHostAddressesAsync(host, cancellationToken)).First(ip => ip.AddressFamily == AddressFamily.InterNetwork);
-            var direct = new TcpClient(AddressFamily.InterNetwork); await direct.ConnectAsync(address, port, cancellationToken); return direct;
+            var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
+            var address = addresses.FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork)
+                ?? addresses.First(ip => ip.AddressFamily == AddressFamily.InterNetworkV6);
+            var direct = new TcpClient(address.AddressFamily); await direct.ConnectAsync(address, port, cancellationToken); return direct;
         }
         if (string.IsNullOrWhiteSpace(proxy.Host) || proxy.Port is < 1 or > 65535) throw new InvalidOperationException("Proxy host or port is invalid.");
         var proxyAddress = (await Dns.GetHostAddressesAsync(proxy.Host, cancellationToken)).First(ip => ip.AddressFamily == AddressFamily.InterNetwork);
