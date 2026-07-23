@@ -67,7 +67,13 @@ internal sealed class ApiServer : IAsyncDisposable
             var request = await context.Request.ReadFromJsonAsync<SiteRequest>();
             if (request is null || string.IsNullOrWhiteSpace(request.Name) || request.Addresses is not { Count: > 0 }) return Results.BadRequest(new { error = "name and addresses are required" });
             var profiles = new ProfileStore().Load().ToList();
-            if (profiles.Any(item => item.Name.Equals(request.Name, StringComparison.OrdinalIgnoreCase))) return Results.Conflict(new { error = "Site already exists" });
+            if (profiles.Any(item => item.Name.Equals(request.Name, StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrWhiteSpace(item.Description) && item.Description.Equals(request.Name, StringComparison.OrdinalIgnoreCase)))
+                return Results.Conflict(new { error = "Site name already exists or overlaps a description" });
+            if (!string.IsNullOrWhiteSpace(request.Description) && profiles.Any(item =>
+                item.Description.Equals(request.Description, StringComparison.OrdinalIgnoreCase) ||
+                item.Name.Equals(request.Description, StringComparison.OrdinalIgnoreCase)))
+                return Results.Conflict(new { error = "Site description already exists or overlaps a name" });
             var profile = CreateProfile(request);
             profiles.Add(profile); new ProfileStore().Save(profiles);
             if (request.Sections is not null) SaveSiteSections(profile.Name, request.Sections);
@@ -79,6 +85,15 @@ internal sealed class ApiServer : IAsyncDisposable
             var profiles = new ProfileStore().Load().ToList();
             var index = profiles.FindIndex(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
             if (index < 0) return Results.NotFound(new { error = "Site not found" });
+            var otherProfiles = profiles.Where((_, itemIndex) => itemIndex != index).ToList();
+            var proposedName = request?.Name ?? profiles[index].Name;
+            var proposedDescription = request?.Description ?? profiles[index].Description;
+            if (otherProfiles.Any(item => item.Name.Equals(proposedName, StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrWhiteSpace(item.Description) && item.Description.Equals(proposedName, StringComparison.OrdinalIgnoreCase)) ||
+                !string.IsNullOrWhiteSpace(proposedDescription) && otherProfiles.Any(item =>
+                    item.Description.Equals(proposedDescription, StringComparison.OrdinalIgnoreCase) ||
+                    item.Name.Equals(proposedDescription, StringComparison.OrdinalIgnoreCase)))
+                return Results.Conflict(new { error = "Site name or description is not unique" });
             profiles[index] = PatchProfile(profiles[index], request ?? new());
             new ProfileStore().Save(profiles);
             if (request?.Sections is not null) SaveSiteSections(profiles[index].Name, request.Sections);
@@ -252,7 +267,7 @@ internal sealed class ApiServer : IAsyncDisposable
     private static string ResolvePath(string site, string path) => path.StartsWith('/') ? path : FindSection(path) is { } section && SitePath(section, site) is { } sectionPath ? sectionPath : path;
     private static object ToApiSection(SectionDefinition section) => new { name = section.Name, hotkey = section.Hotkey, num_jobs = 0,
         sites = section.SitePaths.Select(pair => new { site = pair.Key, path = pair.Value }) };
-    private static object ToApiSite(ConnectionProfile profile) => new { name = profile.Name, addresses = profile.EffectiveAddresses.Select(address => address.ToString()).ToArray(), user = profile.Username,
+    private static object ToApiSite(ConnectionProfile profile) => new { name = profile.Name, description = profile.Description, addresses = profile.EffectiveAddresses.Select(address => address.ToString()).ToArray(), user = profile.Username,
         base_path = profile.EffectiveOptions.BasePath, tls_mode = profile.Protocol == TransferProtocol.FtpsImplicit ? "IMPLICIT" : profile.Protocol == TransferProtocol.FtpsExplicit ? "AUTH_TLS" : "NONE",
         list_command = profile.ListingMode switch { DirectoryListingMode.Auto => "AUTO", DirectoryListingMode.ListOnly => "LIST", _ => "STAT_L" }, max_logins = profile.EffectiveOptions.MaxSlots,
         max_sim_up = profile.EffectiveOptions.MaxUploadSlots, max_sim_down = profile.EffectiveOptions.MaxDownloadSlots,
@@ -273,7 +288,7 @@ internal sealed class ApiServer : IAsyncDisposable
             Affils: string.Join(' ', request.Affils ?? []));
         return new(Guid.NewGuid(), request.Name!, primary.Host, primary.Port, request.User ?? "anonymous", protocol,
             request.Password ?? "", ListingMode: ParseListingMode(request.ListCommand),
-            Options: options, AlternateAddresses: string.Join(' ', alternates));
+            Options: options, AlternateAddresses: string.Join(' ', alternates), Description: request.Description ?? "");
     }
     private static ConnectionProfile PatchProfile(ConnectionProfile profile, SiteRequest request)
     {
@@ -295,7 +310,8 @@ internal sealed class ApiServer : IAsyncDisposable
             ForceBinaryMode = request.ForceBinary ?? profile.EffectiveOptions.ForceBinaryMode };
         return profile with { Name = request.Name ?? profile.Name, Host = host, Port = port, AlternateAddresses = alternateAddresses, Username = request.User ?? profile.Username,
             Password = request.Password ?? profile.Password, Protocol = request.TlsMode is null ? profile.Protocol : ParseTls(request.TlsMode),
-            ListingMode = request.ListCommand is null ? profile.ListingMode : ParseListingMode(request.ListCommand), Options = options };
+            ListingMode = request.ListCommand is null ? profile.ListingMode : ParseListingMode(request.ListCommand), Options = options,
+            Description = request.Description ?? profile.Description };
     }
     private static void ParseAddress(string address, out string host, out int? port)
     { var separator = address.LastIndexOf(':'); if (separator > 0 && int.TryParse(address[(separator + 1)..], out var parsed)) { host = address[..separator]; port = parsed; } else { host = address; port = null; } }
@@ -363,7 +379,7 @@ internal sealed class ApiServer : IAsyncDisposable
         return new X509Certificate2(path, (string?)null, X509KeyStorageFlags.Exportable);
     }
 
-    private sealed record SiteRequest(string? Name = null, List<string>? Addresses = null, string? User = null, string? Password = null,
+    private sealed record SiteRequest(string? Name = null, string? Description = null, List<string>? Addresses = null, string? User = null, string? Password = null,
         [property: JsonPropertyName("base_path")] string? BasePath = null,
         [property: JsonPropertyName("tls_mode")] string? TlsMode = null,
         [property: JsonPropertyName("list_command")] string? ListCommand = null,

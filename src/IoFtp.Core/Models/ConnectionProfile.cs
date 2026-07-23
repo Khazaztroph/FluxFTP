@@ -67,7 +67,8 @@ public sealed record ConnectionProfile(
     DirectoryListingMode ListingMode = DirectoryListingMode.Auto,
     SiteOptions? Options = null,
     ProxyConfiguration? Proxy = null,
-    string AlternateAddresses = "")
+    string AlternateAddresses = "",
+    string Description = "")
 {
     [JsonIgnore] public SiteOptions EffectiveOptions => Options ?? new SiteOptions();
     [JsonIgnore] public string ProtocolDisplay => TransferProtocolNames.Display(Protocol);

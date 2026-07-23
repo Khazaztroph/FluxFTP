@@ -17,6 +17,7 @@ public partial class ConnectionDialog : Window
         Title = quickConnect ? "Quick Connect" : profile is null ? "New Site" : "Edit Site";
         AcceptButton.Content = quickConnect ? "Connect" : "Save";
         NameBox.IsEnabled = !quickConnect;
+        DescriptionBox.IsEnabled = !quickConnect;
         ProtocolBox.ItemsSource = Enum.GetValues<TransferProtocol>().Select(protocol => new ProtocolChoice(protocol)).ToArray();
         ListingModeBox.ItemsSource = new[]
         {
@@ -30,6 +31,7 @@ public partial class ConnectionDialog : Window
         if (profile is not null)
         {
             NameBox.Text = profile.Name;
+            DescriptionBox.Text = profile.Description;
             ProtocolBox.SelectedItem = ((ProtocolChoice[])ProtocolBox.ItemsSource).First(choice => choice.Protocol == profile.Protocol);
             HostBox.Text = string.Join(' ', profile.EffectiveAddresses.Select(address => address.ToString()));
             PortBox.Text = profile.Port.ToString();
@@ -92,7 +94,7 @@ public partial class ConnectionDialog : Window
         var primary = addresses[0];
         Profile = new ConnectionProfile(_id, name, primary.Host, primary.Port, UsernameBox.Text.Trim(), ((ProtocolChoice)ProtocolBox.SelectedItem).Protocol,
             PasswordBox.Password, AllowInvalidCertificateBox.IsChecked == true, listingMode, options,
-            AlternateAddresses: string.Join(' ', addresses.Skip(1).Select(address => address.ToString())));
+            AlternateAddresses: string.Join(' ', addresses.Skip(1).Select(address => address.ToString())), Description: DescriptionBox.Text.Trim());
         DialogResult = true;
     }
 

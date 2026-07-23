@@ -43,6 +43,7 @@ internal sealed class ProfileStore
             var options = profile.EffectiveOptions;
             text.AppendLine().AppendLine($"[site:{profile.Id}]");
             Write(text, "Name", profile.Name);
+            Write(text, "Description", profile.Description);
             Write(text, "Host", profile.Host);
             Write(text, "Port", profile.Port);
             Write(text, "AlternateAddresses", profile.AlternateAddresses);
@@ -94,7 +95,7 @@ internal sealed class ProfileStore
             result.Add(new ConnectionProfile(id, Get(values, "Name", "Site"), Get(values, "Host"), Int(values, "Port", 21),
                 Get(values, "Username"), EnumValue(values, "Protocol", TransferProtocol.Ftp), Unprotect(Get(values, "Password")),
                 Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.Auto), options,
-                AlternateAddresses: Get(values, "AlternateAddresses")));
+                AlternateAddresses: Get(values, "AlternateAddresses"), Description: Get(values, "Description")));
         }
 
         foreach (var rawLine in File.ReadLines(path))

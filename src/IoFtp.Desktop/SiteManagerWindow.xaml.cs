@@ -23,7 +23,11 @@ public partial class SiteManagerWindow : Window
     private void New_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new ConnectionDialog { Owner = this };
-        if (dialog.ShowDialog() == true && dialog.Profile is not null) { _profiles.Add(dialog.Profile); Save(); SitesList.SelectedItem = dialog.Profile; }
+        if (dialog.ShowDialog() == true && dialog.Profile is not null)
+        {
+            if (DescriptionConflict(dialog.Profile)) return;
+            _profiles.Add(dialog.Profile); Save(); SitesList.SelectedItem = dialog.Profile;
+        }
     }
 
     private void Edit_Click(object sender, RoutedEventArgs e)
@@ -32,8 +36,22 @@ public partial class SiteManagerWindow : Window
         var dialog = new ConnectionDialog(profile) { Owner = this };
         if (dialog.ShowDialog() == true && dialog.Profile is not null)
         {
+            if (DescriptionConflict(dialog.Profile, profile.Id)) return;
             var index = _profiles.IndexOf(profile); _profiles[index] = dialog.Profile; Save(); SitesList.SelectedIndex = index;
         }
+    }
+
+    private bool DescriptionConflict(ConnectionProfile profile, Guid? exceptId = null)
+    {
+        var others = _profiles.Where(item => item.Id != exceptId).ToList();
+        var conflict = !string.IsNullOrWhiteSpace(profile.Description) && others.Any(item =>
+            item.Description.Equals(profile.Description, StringComparison.OrdinalIgnoreCase) ||
+            item.Name.Equals(profile.Description, StringComparison.OrdinalIgnoreCase)) ||
+            others.Any(item => !string.IsNullOrWhiteSpace(item.Description) && item.Description.Equals(profile.Name, StringComparison.OrdinalIgnoreCase));
+        if (!conflict) return false;
+        MessageBox.Show("Site names and descriptions must be unique and cannot overlap.",
+            "Site Manager", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return true;
     }
 
     private void Delete_Click(object sender, RoutedEventArgs e)

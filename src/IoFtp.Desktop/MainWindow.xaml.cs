@@ -1540,12 +1540,14 @@ public partial class MainWindow : Window
     private async Task<object> StartApiDownloadAsync(ApiDownloadRequest request) => await await Dispatcher.InvokeAsync(async () =>
     {
         if (string.IsNullOrWhiteSpace(request.Site)) throw new ArgumentException("site is required.");
-        var profile = new ProfileStore().Load().FirstOrDefault(item => item.Name.Equals(request.Site, StringComparison.OrdinalIgnoreCase))
+        var profile = new ProfileStore().Load().FirstOrDefault(item =>
+            item.Name.Equals(request.Site, StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrWhiteSpace(item.Description) && item.Description.Equals(request.Site, StringComparison.OrdinalIgnoreCase))
             ?? throw new KeyNotFoundException($"Site {request.Site} was not found.");
         var localRoot = string.IsNullOrWhiteSpace(request.LocalPath) ? _settings.LocalDownloadPath : request.LocalPath;
         if (string.IsNullOrWhiteSpace(localRoot)) throw new ArgumentException("local_path is required when no global local download path is configured.");
         localRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(localRoot)); Directory.CreateDirectory(localRoot);
-        var remote = NormalizeRemotePath(request.RemoteSection is not null ? ResolveApiSection(request.Site, request.RemoteSection) : request.RemotePath ?? "/");
+        var remote = NormalizeRemotePath(request.RemoteSection is not null ? ResolveApiSection(profile.Name, request.RemoteSection) : request.RemotePath ?? "/");
         var options = profile.EffectiveOptions;
         _engine.RegisterOrUpdateSite(new SitePolicy(profile.Id, profile.Name, options.MaxSlots, options.MaxDownloadSlots, options.MaxUploadSlots, options.Priority));
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5)); await using var session = new FtpRemoteSession(); await session.ConnectAsync(ApplyGlobalProxy(profile), timeout.Token);
@@ -1567,8 +1569,8 @@ public partial class MainWindow : Window
         else if (selected is null) throw new FileNotFoundException($"{remote} was not found on {request.Site}.");
         else if (selected.IsDirectory) await QueueDirectory(selected.FullPath, Path.Combine(localRoot, selected.Name));
         else { Schedule(AddQueue(selected.Name, selected.FullPath, Path.Combine(localRoot, selected.Name), TransferDirection.ApiDownload, selected.Size ?? 0, profile.Id)); queued++; }
-        LogText.AppendText($"{Environment.NewLine}API queued {queued} download(s) from {request.Site}: {remote}"); LogText.ScrollToEnd();
-        return new { site = request.Site, remote_path = remote, local_path = localRoot, queued, status = "QUEUED" };
+        LogText.AppendText($"{Environment.NewLine}API queued {queued} download(s) from {profile.Name}: {remote}"); LogText.ScrollToEnd();
+        return new { site = profile.Name, description = profile.Description, remote_path = remote, local_path = localRoot, queued, status = "QUEUED" };
     });
 
     private static string ResolveApiSection(string site, string sectionName)

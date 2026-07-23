@@ -6,6 +6,17 @@
         <Border DockPanel.Dock="Top" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="12,8" Margin="0,0,0,8">
             <Grid><TextBlock Text="SPREAD JOBS" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"/><TextBlock Text="Section-based routes" HorizontalAlignment="Right" Foreground="{StaticResource MutedTextBrush}"/></Grid>
         </Border>
+        <Border DockPanel.Dock="Top" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="10,7" Margin="0,0,0,8">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="260"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Text="Preset" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <ComboBox x:Name="PresetBox" Grid.Column="1" IsEditable="True" DisplayMemberPath="Name" Margin="0,0,8,0" ToolTip="Select a saved route or type a name to save the selected job as a preset."/>
+                <Button Grid.Column="2" Content="Apply" Click="ApplyPreset_Click"/>
+                <Button Grid.Column="3" Content="Save preset" Click="SavePreset_Click"/>
+                <Button Grid.Column="4" Content="Delete preset" Click="DeletePreset_Click"/>
+                <TextBlock Grid.Column="5" Text="Presets remember section, source and targets" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}"/>
+            </Grid>
+        </Border>
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Content="Add" Click="Add_Click"/><Button Content="Remove" Click="Remove_Click"/><Button Content="Save" Click="Save_Click"/><Button Content="Close" Click="Close_Click"/>
         </StackPanel>
