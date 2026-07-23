@@ -37,6 +37,9 @@ Per-site affiliate/group names can be edited in Site Options and are exposed as
 Spread Jobs also supports reusable presets for section, source and target routes.
 Optional unique site descriptions are exposed through the sites API and can be
 used in API or d-tool download commands instead of the technical site name.
+Sections can enforce release-name prechecks with wildcard or `regex:` allow and
+deny rules. Warning mode allows a manual override, while Block mode prevents PRE
+and section-based API/d-tool race or FXP jobs.
 
 Transfer Queue and Transfer Jobs provide graphical per-file progress bars, queued
 and started timestamps, live speed information, and an aggregate activity bar in

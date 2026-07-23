@@ -1503,6 +1503,18 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(request.SrcSite) || string.IsNullOrWhiteSpace(request.DstSite) || string.IsNullOrWhiteSpace(request.Name))
             throw new ArgumentException("src_site, dst_site and name are required for FXP jobs.");
+        var validationSection = request.SrcSection ?? request.DstSection;
+        if (!string.IsNullOrWhiteSpace(validationSection))
+        {
+            var validation = SectionReleaseValidator.Validate(validationSection, request.Name);
+            if (!validation.Accepted)
+            {
+                LogText.AppendText($"{Environment.NewLine}Section precheck {validation.Mode}: {validation.Message}");
+                LogText.ScrollToEnd();
+                if (validation.Mode == SectionValidationMode.Block)
+                    throw new InvalidOperationException($"Transfer blocked: {validation.Message}");
+            }
+        }
         var profiles = new ProfileStore().Load();
         var sourceProfile = profiles.FirstOrDefault(profile => profile.Name.Equals(request.SrcSite, StringComparison.OrdinalIgnoreCase))
             ?? throw new KeyNotFoundException($"Site {request.SrcSite} was not found.");

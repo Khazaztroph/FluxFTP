@@ -3,7 +3,15 @@ using System.Text.Json;
 
 namespace IoFtp.Desktop.Services;
 
-internal sealed record SectionDefinition(string Name, Dictionary<string, string> SitePaths, int Hotkey = 0);
+internal enum SectionValidationMode { Disabled, Warning, Block }
+
+internal sealed record SectionDefinition(
+    string Name,
+    Dictionary<string, string> SitePaths,
+    int Hotkey = 0,
+    string AllowPatterns = "",
+    string DenyPatterns = "",
+    SectionValidationMode ValidationMode = SectionValidationMode.Disabled);
 
 internal sealed class SectionStore
 {

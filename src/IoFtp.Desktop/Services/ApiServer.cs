@@ -116,14 +116,23 @@ internal sealed class ApiServer : IAsyncDisposable
             var request = await context.Request.ReadFromJsonAsync<SectionRequest>();
             if (request is null || string.IsNullOrWhiteSpace(request.Name)) return Results.BadRequest(new { error = "name is required" });
             var sections = new SectionStore().Load(); if (sections.Any(item => item.Name.Equals(request.Name, StringComparison.OrdinalIgnoreCase))) return Results.Conflict(new { error = "Section already exists" });
-            var section = new SectionDefinition(request.Name, new(StringComparer.OrdinalIgnoreCase), request.Hotkey ?? 0); sections.Add(section); new SectionStore().Save(sections);
+            var section = new SectionDefinition(request.Name, new(StringComparer.OrdinalIgnoreCase), request.Hotkey ?? 0,
+                JoinPatterns(request.AllowPatterns), JoinPatterns(request.DenyPatterns), ParseValidationMode(request.ValidationMode));
+            sections.Add(section); new SectionStore().Save(sections);
             return Results.Created($"/sections/{Uri.EscapeDataString(section.Name)}", ToApiSection(section));
         });
         _app.MapPatch("/sections/{name}", async (string name, HttpContext context) =>
         {
             var request = await context.Request.ReadFromJsonAsync<SectionRequest>() ?? new(); var sections = new SectionStore().Load();
             var index = sections.FindIndex(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase)); if (index < 0) return Results.NotFound(new { error = "Section not found" });
-            sections[index] = sections[index] with { Name = request.Name ?? sections[index].Name, Hotkey = request.Hotkey ?? sections[index].Hotkey };
+            sections[index] = sections[index] with
+            {
+                Name = request.Name ?? sections[index].Name,
+                Hotkey = request.Hotkey ?? sections[index].Hotkey,
+                AllowPatterns = request.AllowPatterns is null ? sections[index].AllowPatterns : JoinPatterns(request.AllowPatterns),
+                DenyPatterns = request.DenyPatterns is null ? sections[index].DenyPatterns : JoinPatterns(request.DenyPatterns),
+                ValidationMode = request.ValidationMode is null ? sections[index].ValidationMode : ParseValidationMode(request.ValidationMode)
+            };
             new SectionStore().Save(sections); return Results.Json(ToApiSection(sections[index]));
         });
         _app.MapDelete("/sections/{name}", (string name) =>
@@ -266,6 +275,8 @@ internal sealed class ApiServer : IAsyncDisposable
     private static bool RemoveSitePath(SectionDefinition section, string site) { var key = section.SitePaths.Keys.FirstOrDefault(key => key.Equals(site, StringComparison.OrdinalIgnoreCase)); return key is not null && section.SitePaths.Remove(key); }
     private static string ResolvePath(string site, string path) => path.StartsWith('/') ? path : FindSection(path) is { } section && SitePath(section, site) is { } sectionPath ? sectionPath : path;
     private static object ToApiSection(SectionDefinition section) => new { name = section.Name, hotkey = section.Hotkey, num_jobs = 0,
+        validation_mode = section.ValidationMode.ToString().ToUpperInvariant(), allow_patterns = SplitPatterns(section.AllowPatterns),
+        deny_patterns = SplitPatterns(section.DenyPatterns),
         sites = section.SitePaths.Select(pair => new { site = pair.Key, path = pair.Value }) };
     private static object ToApiSite(ConnectionProfile profile) => new { name = profile.Name, description = profile.Description, addresses = profile.EffectiveAddresses.Select(address => address.ToString()).ToArray(), user = profile.Username,
         base_path = profile.EffectiveOptions.BasePath, tls_mode = profile.Protocol == TransferProtocol.FtpsImplicit ? "IMPLICIT" : profile.Protocol == TransferProtocol.FtpsExplicit ? "AUTH_TLS" : "NONE",
@@ -352,6 +363,7 @@ internal sealed class ApiServer : IAsyncDisposable
                 await session.ConnectAsync(profile, cancellation.Token);
                 var rawPath = request.PathSection is not null ? ResolvePath(name, request.PathSection) : request.Path;
                 if (!string.IsNullOrWhiteSpace(rawPath)) await session.ExecuteCommandAsync($"CWD {rawPath}", cancellation.Token);
+                ValidateRawPre(request.Command);
                 var response = await session.ExecuteCommandAsync(request.Command ?? "", cancellation.Token);
                 var result = StripAnsi(response.Message).Trim();
                 results.Add(new(name, result.Length > 0 ? result : $"{response.StatusCode} Command successful", response.StatusCode, null));
@@ -363,6 +375,23 @@ internal sealed class ApiServer : IAsyncDisposable
 
     private static string StripAnsi(string value) =>
         Regex.Replace(value, "\u001B\\[[0-9;]*[A-Za-z]", "");
+
+    private static string[] SplitPatterns(string value) => value
+        .Split(['\r', '\n', ';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static string JoinPatterns(IEnumerable<string>? values) => string.Join("; ", values ?? []);
+    private static SectionValidationMode ParseValidationMode(string? value) =>
+        Enum.TryParse<SectionValidationMode>(value, true, out var mode) ? mode : SectionValidationMode.Disabled;
+
+    private static void ValidateRawPre(string? command)
+    {
+        if (string.IsNullOrWhiteSpace(command)) return;
+        var fields = command.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (fields.Length < 4 || !fields[0].Equals("SITE", StringComparison.OrdinalIgnoreCase) ||
+            !fields[1].Equals("PRE", StringComparison.OrdinalIgnoreCase)) return;
+        var validation = SectionReleaseValidator.Validate(fields[2], fields[3]);
+        if (!validation.Accepted && validation.Mode == SectionValidationMode.Block)
+            throw new InvalidOperationException($"PRE blocked: {validation.Message}");
+    }
 
     private static X509Certificate2 LoadOrCreateCertificate()
     {
@@ -396,7 +425,10 @@ internal sealed class ApiServer : IAsyncDisposable
         List<SiteSectionRequest>? Sections = null);
 
     private sealed record SiteSectionRequest(string Name = "", string Path = "");
-    private sealed record SectionRequest(string? Name = null, string? Path = null, int? Hotkey = null);
+    private sealed record SectionRequest(string? Name = null, string? Path = null, int? Hotkey = null,
+        [property: JsonPropertyName("validation_mode")] string? ValidationMode = null,
+        [property: JsonPropertyName("allow_patterns")] List<string>? AllowPatterns = null,
+        [property: JsonPropertyName("deny_patterns")] List<string>? DenyPatterns = null);
 }
 
 internal sealed record RawRequest(string? Command = null, string[]? Sites = null,

@@ -11,6 +11,7 @@ namespace IoFtp.Desktop;
 public partial class CommandsWindow : Window
 {
     private readonly IRemoteSession _session;
+    private readonly string _siteName;
     private readonly string _selectedPath;
     private readonly bool _selectedIsDirectory;
     private readonly Func<Task>? _refreshDirectory;
@@ -19,7 +20,7 @@ public partial class CommandsWindow : Window
 
     public CommandsWindow(IRemoteSession session, string siteName, string selectedPath, bool selectedIsDirectory, Func<Task>? refreshDirectory = null, Func<string, Dictionary<string, string>, bool, Task>? scriptEvent = null)
     {
-        InitializeComponent(); _session = session; _selectedPath = selectedPath; _selectedIsDirectory = selectedIsDirectory; _refreshDirectory = refreshDirectory; _scriptEvent = scriptEvent;
+        InitializeComponent(); _session = session; _siteName = siteName; _selectedPath = selectedPath; _selectedIsDirectory = selectedIsDirectory; _refreshDirectory = refreshDirectory; _scriptEvent = scriptEvent;
         var selectedName = Path.GetFileName(selectedPath.TrimEnd('/'));
         SelectionText.Text = $"Site: {siteName}    Selected: {(selectedPath.Length == 0 ? "none" : selectedPath)}";
         _presets =
@@ -88,6 +89,18 @@ public partial class CommandsWindow : Window
                 var runInsideSelection = _selectedIsDirectory && command.StartsWith("SITE PRE ", StringComparison.OrdinalIgnoreCase);
                 var preParts = command.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                 var preVariables = new Dictionary<string, string> { ["site"] = SelectionText.Text, ["path"] = _selectedPath, ["name"] = Path.GetFileName(_selectedPath.TrimEnd('/')), ["section"] = preParts.Length > 2 ? preParts[2] : "", ["status"] = "Starting" };
+                if (runInsideSelection && preParts.Length > 2)
+                {
+                    var validation = SectionReleaseValidator.Validate(preParts[2], preVariables["name"]);
+                    if (!validation.Accepted && validation.Mode == SectionValidationMode.Block)
+                        throw new InvalidOperationException($"PRE blocked: {validation.Message}");
+                    if (!validation.Accepted && validation.Mode == SectionValidationMode.Warning &&
+                        MessageBox.Show($"{validation.Message}{Environment.NewLine}{Environment.NewLine}Continue with PRE?",
+                            "Section precheck", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                        throw new OperationCanceledException("PRE cancelled by section precheck.");
+                    if (!validation.Accepted)
+                        OutputBox.AppendText($"Section precheck warning ({_siteName}): {validation.Message}{Environment.NewLine}{Environment.NewLine}");
+                }
                 if (runInsideSelection && _scriptEvent is not null) await _scriptEvent("BeforePre", preVariables, false);
                 if (runInsideSelection)
                 {

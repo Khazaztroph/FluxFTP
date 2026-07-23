@@ -2,6 +2,16 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.10 — 2026-07-23
+
+### Added
+
+- Per-section release validation (Wanker check) with Disabled, Warning and Block modes.
+- Allow and deny rules using wildcards or `regex:` patterns.
+- Interactive precheck testing in the Sections window.
+- Validation before manual `SITE PRE`, raw API PRE and section-based API/d-tool race or FXP jobs.
+- Clear precheck logging and manual override for Warning mode.
+
 ## 1.0.9 — 2026-07-23
 
 ### Added
