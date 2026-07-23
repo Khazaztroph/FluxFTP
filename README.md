@@ -1,6 +1,8 @@
                
 # FluxFTP
 
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 FluxFTP is a modern dual-pane FTP/FXP client prototype. The first milestone focuses
 on the desktop workflow, a persistent transfer queue boundary, and a theme system
 with ioGUI3 as the default visual identity.
@@ -29,6 +31,9 @@ dotnet run --project .\src\IoFtp.Desktop\IoFtp.Desktop.csproj
 
 FluxFTP supports FTP/FTPS connections, dual remote sessions, resumable transfers,
 and secure FXP with automatic client-relay fallback.
+
+Per-site affiliate/group names can be edited in Site Options and are exposed as
+`affils` through the cbftp-compatible API for automatic d-tool synchronization.
 
 Transfer Queue and Transfer Jobs provide graphical per-file progress bars, queued
 and started timestamps, live speed information, and an aggregate activity bar in

@@ -21,6 +21,7 @@ public partial class SiteOptionsWindow : Window
         CeprBox.IsChecked = options.CeprSupported;
         XdupeBox.IsChecked = options.UseXdupe;
         BlockFromBox.Text = options.BlockTransfersFrom; BlockToBox.Text = options.BlockTransfersTo;
+        AffilsBox.Text = options.Affils;
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -34,7 +35,7 @@ public partial class SiteOptionsWindow : Window
         Options = new SiteOptions(slots, uploads, downloads, priority, AllowUploadBox.IsChecked == true, AllowDownloadBox.IsChecked == true,
             StayLoggedInBox.IsChecked == true, string.IsNullOrWhiteSpace(BasePathBox.Text) ? "/" : BasePathBox.Text.Trim(),
             TlsTransfersBox.IsChecked == true, BinaryModeBox.IsChecked == true, idle, BlockFromBox.Text.Trim(), BlockToBox.Text.Trim(), SecureListingsBox.IsChecked == true,
-            NeedsPretBox.IsChecked == true, CeprBox.IsChecked == true, XdupeBox.IsChecked == true);
+            NeedsPretBox.IsChecked == true, CeprBox.IsChecked == true, XdupeBox.IsChecked == true, AffilsBox.Text.Trim());
         DialogResult = true;
     }
 

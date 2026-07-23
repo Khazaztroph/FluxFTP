@@ -16,6 +16,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="190"/><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <TextBlock Text="Total slots" VerticalAlignment="Center"/><TextBox x:Name="MaxSlotsBox" Grid.Column="1" Margin="0,4"/>
@@ -26,6 +27,7 @@
                         <CheckBox x:Name="AllowDownloadBox" Grid.Row="5" Grid.ColumnSpan="2" Content="Allow downloads from this site" Margin="0,2"/>
                         <TextBlock Grid.Row="6" Text="Block transfers from" VerticalAlignment="Center"/><TextBox x:Name="BlockFromBox" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,4" ToolTip="Comma-separated site names."/>
                         <TextBlock Grid.Row="7" Text="Block transfers to" VerticalAlignment="Center"/><TextBox x:Name="BlockToBox" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,4" ToolTip="Comma-separated site names."/>
+                        <TextBlock Grid.Row="8" Text="Affiliates (affils)" VerticalAlignment="Center"/><TextBox x:Name="AffilsBox" Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,4" ToolTip="Space- or comma-separated affiliate/group names. Exposed through the cbftp-compatible API for d-tool synchronization."/>
                     </Grid>
                 </TabItem>
                 <TabItem Header="Connection behavior">
