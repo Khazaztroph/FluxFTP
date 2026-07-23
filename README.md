@@ -43,6 +43,31 @@ FluxFTP can minimize and close to the Windows system tray so transfers and API
 automation continue in the background. Use **Exit FluxFTP** from the tray menu to
 stop the application; an additional warning is shown while the HTTPS/JSON API is active.
 
+### mIRC and d-tool automation
+
+When the HTTPS/JSON API is enabled, FluxFTP also exposes a cbftp-compatible UDP
+command listener on the same numeric port. TCP is used for HTTPS and UDP is used
+for autotrader commands, so both listeners can run together. This supports the
+d-tool `raw`, `fxp`, `race` and `download` commands without the FTPRush DLL.
+
+Example UDP payloads (the configured API password is the first field):
+
+```text
+password raw SITE1 site stat
+password fxp SITE1 /path/Release SITE2 /target/Release
+password fxp SITE1 /path Release SITE2 /target
+password race MOVIES Release.Name SITE1,SITE2,SITE3
+password download SITE1 /path/Release
+```
+
+API/UDP FXP jobs use saved site profiles and reusable slots and do not require
+the sites to be open in the two visible Remote panes. Keep **Localhost only**
+enabled when mIRC and FluxFTP run on the same computer.
+
+d-tool's current line-oriented `/raw` parser also prints standalone JSON
+delimiters. The compatible parser fix is available in
+[scriptzteam/d-tool#1](https://github.com/scriptzteam/d-tool/pull/1).
+
 ## Screenshots
 
 ### Dual-pane workspace

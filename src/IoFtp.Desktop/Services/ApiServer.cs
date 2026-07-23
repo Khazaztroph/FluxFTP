@@ -5,6 +5,8 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using System.Reflection;
 using IoFtp.Core.Models;
 using IoFtp.Core.Transport;
 using IoFtp.Desktop.Models;
@@ -12,19 +14,23 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace IoFtp.Desktop.Services;
 
 internal sealed class ApiServer : IAsyncDisposable
 {
     private WebApplication? _app;
+    private CbftpUdpServer? _udpServer;
 
     public async Task StartAsync(GlobalSettings settings, Func<IReadOnlyList<TransferJobInfo>> getJobs,
-        Func<ApiTransferRequest, Task<object>> startTransfer, Func<ApiDownloadRequest, Task<object>> startDownload, Action<Guid> removeJob, Action<Guid> resetJob)
+        Func<ApiTransferRequest, Task<object>> startTransfer, Func<ApiDownloadRequest, Task<object>> startDownload,
+        Action<Guid> removeJob, Action<Guid> resetJob, Action<string>? diagnosticLog = null)
     {
         if (!settings.EnableHttpsApi) return;
         var certificate = LoadOrCreateCertificate();
         var builder = WebApplication.CreateSlimBuilder();
+        builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.WriteIndented = true);
         builder.WebHost.ConfigureKestrel(options => options.Listen(
             settings.ApiLocalhostOnly ? IPAddress.Loopback : IPAddress.Any, settings.HttpsApiPort,
             listen => listen.UseHttps(certificate)));
@@ -32,17 +38,28 @@ internal sealed class ApiServer : IAsyncDisposable
 
         _app.Use(async (context, next) =>
         {
-            if (!IsAuthorized(context, settings.ApiPassword))
+            var isRawRequest = context.Request.Path.Equals("/raw", StringComparison.OrdinalIgnoreCase);
+            if (!TryAuthorize(context, settings.ApiPassword, out var authDiagnostic))
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 context.Response.Headers.WWWAuthenticate = "Basic realm=\"FluxFTP\"";
                 await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
+                if (isRawRequest) diagnosticLog?.Invoke($"API POST /raw → 401 Unauthorized ({authDiagnostic})");
                 return;
             }
-            await next();
+            try
+            {
+                await next();
+                if (isRawRequest) diagnosticLog?.Invoke($"API POST /raw → {context.Response.StatusCode}");
+            }
+            catch (Exception exception)
+            {
+                if (isRawRequest) diagnosticLog?.Invoke($"API POST /raw failed: {exception.GetType().Name}: {exception.Message}");
+                throw;
+            }
         });
 
-        _app.MapGet("/info", () => Results.Json(new { name = "FluxFTP", version = "1.0.0", api = "cbftp-compatible", tls = true }));
+        _app.MapGet("/info", () => Results.Json(new { name = "FluxFTP", version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0", api = "cbftp-compatible", tls = true, udp = true }));
         _app.MapGet("/sites", () => Results.Json(new ProfileStore().Load().Select(ToApiSite)));
         _app.MapGet("/sites/{name}", (string name) => FindSite(name) is { } site ? Results.Json(ToApiSite(site)) : Results.NotFound(new { error = "Site not found" }));
         _app.MapPost("/sites", async (HttpContext context) =>
@@ -53,6 +70,7 @@ internal sealed class ApiServer : IAsyncDisposable
             if (profiles.Any(item => item.Name.Equals(request.Name, StringComparison.OrdinalIgnoreCase))) return Results.Conflict(new { error = "Site already exists" });
             var profile = CreateProfile(request);
             profiles.Add(profile); new ProfileStore().Save(profiles);
+            if (request.Sections is not null) SaveSiteSections(profile.Name, request.Sections);
             return Results.Created($"/sites/{Uri.EscapeDataString(profile.Name)}", ToApiSite(profile));
         });
         _app.MapPatch("/sites/{name}", async (string name, HttpContext context) =>
@@ -62,7 +80,9 @@ internal sealed class ApiServer : IAsyncDisposable
             var index = profiles.FindIndex(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
             if (index < 0) return Results.NotFound(new { error = "Site not found" });
             profiles[index] = PatchProfile(profiles[index], request ?? new());
-            new ProfileStore().Save(profiles); return Results.Json(ToApiSite(profiles[index]));
+            new ProfileStore().Save(profiles);
+            if (request?.Sections is not null) SaveSiteSections(profiles[index].Name, request.Sections);
+            return Results.Json(ToApiSite(profiles[index]));
         });
         _app.MapDelete("/sites/{name}", (string name) =>
         {
@@ -143,53 +163,85 @@ internal sealed class ApiServer : IAsyncDisposable
             if (output.Length > 500 * 1024) return Results.BadRequest(new { error = "File exceeds 500 KiB" });
             return Results.Bytes(output.ToArray(), "application/octet-stream", Path.GetFileName(path));
         });
-        _app.MapPost("/raw", async (RawRequest request) =>
+        _app.MapPost("/raw", async (RawRequest request, HttpContext context) =>
         {
-            var names = request.SitesAll ? new ProfileStore().Load().Select(site => site.Name).ToArray() : request.Sites ?? [];
-            var results = new List<object>();
-            foreach (var name in names)
+            var results = await ExecuteRawAsync(request);
+            // d-tool's mIRC socket reader consumes one response line per
+            // socket event. cbftp closes the HTTP/1.1 connection after each
+            // API response, so mirror that behavior instead of keep-alive.
+            context.Response.Headers.Connection = "close";
+            // cbftp wraps raw-command results in successes/failures. d-tool's
+            // mIRC parser consumes this indented structure line-by-line.
+            var response = new
             {
-                var profile = FindSite(name); if (profile is null) { results.Add(new { site = name, error = "Site not found" }); continue; }
-                using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(request.Timeout ?? 10, 1, 300)));
-                await using var session = new FtpRemoteSession();
-                try
-                {
-                    await session.ConnectAsync(profile, cancellation.Token);
-                    var rawPath = request.PathSection is not null ? ResolvePath(name, request.PathSection) : request.Path;
-                    if (!string.IsNullOrWhiteSpace(rawPath)) await session.ExecuteCommandAsync($"CWD {rawPath}", cancellation.Token);
-                    var response = await session.ExecuteCommandAsync(request.Command ?? "", cancellation.Token);
-                    results.Add(new { site = name, code = response.StatusCode, message = response.Message });
-                }
-                catch (Exception exception) { results.Add(new { site = name, error = exception.Message }); }
-            }
-            return Results.Json(new { results });
+                failures = results.Where(result => result.Error is not null)
+                    .Select(result => new { name = result.Name, reason = result.Error }),
+                successes = results.Where(result => result.Error is null)
+                    .Select(result => new { name = result.Name, result = result.Result })
+            };
+            var json = JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+            diagnosticLog?.Invoke($"API /raw completed: {results.Count(result => result.Error is null)} success, {results.Count(result => result.Error is not null)} failure, {Encoding.UTF8.GetByteCount(json)} bytes");
+            return Results.Text(json, "application/json");
         });
         _app.MapGet("/transferjobs", () => Results.Json(getJobs()));
+        _app.MapGet("/spreadjobs", (string? status) => Results.Json(getJobs()
+            .Where(job => job.Type.Equals("FXP", StringComparison.OrdinalIgnoreCase) &&
+                (string.IsNullOrWhiteSpace(status) || job.State.Equals(status, StringComparison.OrdinalIgnoreCase) ||
+                 status.Equals("RUNNING", StringComparison.OrdinalIgnoreCase) && job.State is "Queued" or "Transferring"))
+            .Select(job => new { name = job.Name, status = job.State.Equals("Transferring", StringComparison.OrdinalIgnoreCase) ? "RUNNING" : job.State.ToUpperInvariant(),
+                queued = job.Queued, started = job.Started, route = job.Route, speed = job.Speed, done = job.Done })));
         _app.MapPost("/transferjobs", async (ApiTransferRequest request) => Results.Json(await startTransfer(request)));
         _app.MapPost("/downloads", async (ApiDownloadRequest request) => Results.Json(await startDownload(request)));
         _app.MapPost("/transferjobs/{id:guid}/abort", (Guid id) => { removeJob(id); return Results.Ok(new { aborted = id }); });
         _app.MapPost("/transferjobs/{id:guid}/reset", (Guid id) => { resetJob(id); return Results.Ok(new { reset = id }); });
 
         await _app.StartAsync();
+        _udpServer = new CbftpUdpServer(settings.ApiLocalhostOnly ? IPAddress.Loopback : IPAddress.Any, settings.HttpsApiPort,
+            settings.ApiPassword, ExecuteRawAsync, startTransfer, startDownload);
+        await _udpServer.StartAsync();
     }
 
     public async ValueTask DisposeAsync()
     {
+        if (_udpServer is not null) { await _udpServer.DisposeAsync(); _udpServer = null; }
         if (_app is null) return;
         await _app.StopAsync(); await _app.DisposeAsync(); _app = null;
     }
 
-    private static bool IsAuthorized(HttpContext context, string password)
+    private static bool TryAuthorize(HttpContext context, string password, out string diagnostic)
     {
         var header = context.Request.Headers.Authorization.ToString();
-        if (!header.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!header.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostic = string.IsNullOrWhiteSpace(header) ? "no Authorization header" : "authorization scheme is not Basic";
+            return false;
+        }
         try
         {
             var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(header[6..]));
-            var supplied = decoded[(decoded.IndexOf(':') + 1)..];
-            return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(password));
+            var colon = decoded.IndexOf(':');
+            if (colon < 0)
+            {
+                diagnostic = $"decoded credentials have no colon; total length {decoded.Length}";
+                return false;
+            }
+            var supplied = decoded[(colon + 1)..];
+            var authorized = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(password));
+            diagnostic = authorized
+                ? "credentials accepted"
+                : $"username length {colon}, password length {supplied.Length}, expected password length {password.Length}";
+            return authorized;
         }
-        catch { return false; }
+        catch (FormatException)
+        {
+            diagnostic = "credentials are not valid Base64";
+            return false;
+        }
+        catch
+        {
+            diagnostic = "credentials could not be decoded";
+            return false;
+        }
     }
 
     private static ConnectionProfile? FindSite(string name) => new ProfileStore().Load().FirstOrDefault(site => site.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -205,7 +257,10 @@ internal sealed class ApiServer : IAsyncDisposable
         list_command = profile.ListingMode switch { DirectoryListingMode.Auto => "AUTO", DirectoryListingMode.ListOnly => "LIST", _ => "STAT_L" }, max_logins = profile.EffectiveOptions.MaxSlots,
         max_sim_up = profile.EffectiveOptions.MaxUploadSlots, max_sim_down = profile.EffectiveOptions.MaxDownloadSlots,
         priority = profile.EffectiveOptions.Priority, needs_pret = profile.EffectiveOptions.NeedsPret,
-        cepr_supported = profile.EffectiveOptions.CeprSupported, use_xdupe = profile.EffectiveOptions.UseXdupe };
+        cepr_supported = profile.EffectiveOptions.CeprSupported, use_xdupe = profile.EffectiveOptions.UseXdupe,
+        except_source_sites = SplitList(profile.EffectiveOptions.BlockTransfersFrom), except_target_sites = SplitList(profile.EffectiveOptions.BlockTransfersTo),
+        affils = SplitList(profile.EffectiveOptions.Affils), force_binary = profile.EffectiveOptions.ForceBinaryMode,
+        sections = new SectionStore().Load().Select(section => new { name = section.Name, path = SitePath(section, profile.Name) }).Where(section => section.path is not null) };
     private static ConnectionProfile CreateProfile(SiteRequest request)
     {
         var protocol = ParseTls(request.TlsMode); var defaultPort = protocol == TransferProtocol.FtpsImplicit ? 990 : 21;
@@ -213,7 +268,9 @@ internal sealed class ApiServer : IAsyncDisposable
         var alternates = request.Addresses.Skip(1).Select(value => SiteEndpoint.TryParse(value, defaultPort, out var endpoint) ? endpoint : throw new ArgumentException($"Invalid site address: {value}"));
         var options = new SiteOptions(request.MaxLogins ?? 3, request.MaxSimUp ?? 3, request.MaxSimDown ?? 2,
             request.Priority ?? 0, BasePath: request.BasePath ?? "/", NeedsPret: request.NeedsPret ?? false, CeprSupported: request.CeprSupported ?? false,
-            UseXdupe: request.UseXdupe ?? false);
+            UseXdupe: request.UseXdupe ?? false, BlockTransfersFrom: string.Join(' ', request.ExceptSourceSites ?? []),
+            BlockTransfersTo: string.Join(' ', request.ExceptTargetSites ?? []), ForceBinaryMode: request.ForceBinary ?? true,
+            Affils: string.Join(' ', request.Affils ?? []));
         return new(Guid.NewGuid(), request.Name!, primary.Host, primary.Port, request.User ?? "anonymous", protocol,
             request.Password ?? "", ListingMode: ParseListingMode(request.ListCommand),
             Options: options, AlternateAddresses: string.Join(' ', alternates));
@@ -231,7 +288,11 @@ internal sealed class ApiServer : IAsyncDisposable
             MaxUploadSlots = request.MaxSimUp ?? profile.EffectiveOptions.MaxUploadSlots, MaxDownloadSlots = request.MaxSimDown ?? profile.EffectiveOptions.MaxDownloadSlots,
             Priority = request.Priority ?? profile.EffectiveOptions.Priority, NeedsPret = request.NeedsPret ?? profile.EffectiveOptions.NeedsPret,
             CeprSupported = request.CeprSupported ?? profile.EffectiveOptions.CeprSupported,
-            UseXdupe = request.UseXdupe ?? profile.EffectiveOptions.UseXdupe };
+            UseXdupe = request.UseXdupe ?? profile.EffectiveOptions.UseXdupe,
+            BlockTransfersFrom = request.ExceptSourceSites is null ? profile.EffectiveOptions.BlockTransfersFrom : string.Join(' ', request.ExceptSourceSites),
+            BlockTransfersTo = request.ExceptTargetSites is null ? profile.EffectiveOptions.BlockTransfersTo : string.Join(' ', request.ExceptTargetSites),
+            Affils = request.Affils is null ? profile.EffectiveOptions.Affils : string.Join(' ', request.Affils),
+            ForceBinaryMode = request.ForceBinary ?? profile.EffectiveOptions.ForceBinaryMode };
         return profile with { Name = request.Name ?? profile.Name, Host = host, Port = port, AlternateAddresses = alternateAddresses, Username = request.User ?? profile.Username,
             Password = request.Password ?? profile.Password, Protocol = request.TlsMode is null ? profile.Protocol : ParseTls(request.TlsMode),
             ListingMode = request.ListCommand is null ? profile.ListingMode : ParseListingMode(request.ListCommand), Options = options };
@@ -245,6 +306,47 @@ internal sealed class ApiServer : IAsyncDisposable
         "STAT_L" or "STAT-L" => DirectoryListingMode.StatThenList,
         _ => DirectoryListingMode.Auto
     };
+
+    private static string[] SplitList(string value) => value.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static void SaveSiteSections(string site, IReadOnlyList<SiteSectionRequest> requested)
+    {
+        var store = new SectionStore(); var sections = store.Load();
+        foreach (var section in sections) RemoveSitePath(section, site);
+        foreach (var item in requested.Where(item => !string.IsNullOrWhiteSpace(item.Name) && !string.IsNullOrWhiteSpace(item.Path)))
+        {
+            var index = sections.FindIndex(section => section.Name.Equals(item.Name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0) { sections.Add(new(item.Name, new(StringComparer.OrdinalIgnoreCase))); index = sections.Count - 1; }
+            SetSitePath(sections[index], site, item.Path);
+        }
+        store.Save(sections);
+    }
+
+    private static async Task<IReadOnlyList<RawApiResult>> ExecuteRawAsync(RawRequest request)
+    {
+        var names = request.SitesAll ? new ProfileStore().Load().Select(site => site.Name).ToArray() : request.Sites ?? [];
+        var results = new List<RawApiResult>();
+        foreach (var name in names)
+        {
+            var profile = FindSite(name); if (profile is null) { results.Add(new(name, "", null, "Site not found")); continue; }
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(request.Timeout ?? 10, 1, 300)));
+            await using var session = new FtpRemoteSession();
+            try
+            {
+                await session.ConnectAsync(profile, cancellation.Token);
+                var rawPath = request.PathSection is not null ? ResolvePath(name, request.PathSection) : request.Path;
+                if (!string.IsNullOrWhiteSpace(rawPath)) await session.ExecuteCommandAsync($"CWD {rawPath}", cancellation.Token);
+                var response = await session.ExecuteCommandAsync(request.Command ?? "", cancellation.Token);
+                var result = StripAnsi(response.Message).Trim();
+                results.Add(new(name, result.Length > 0 ? result : $"{response.StatusCode} Command successful", response.StatusCode, null));
+            }
+            catch (Exception exception) { results.Add(new(name, "", null, exception.Message)); }
+        }
+        return results;
+    }
+
+    private static string StripAnsi(string value) =>
+        Regex.Replace(value, "\u001B\\[[0-9;]*[A-Za-z]", "");
 
     private static X509Certificate2 LoadOrCreateCertificate()
     {
@@ -270,12 +372,26 @@ internal sealed class ApiServer : IAsyncDisposable
         [property: JsonPropertyName("max_sim_down")] int? MaxSimDown = null, int? Priority = null,
         [property: JsonPropertyName("needs_pret")] bool? NeedsPret = null,
         [property: JsonPropertyName("cepr_supported")] bool? CeprSupported = null,
-        [property: JsonPropertyName("use_xdupe")] bool? UseXdupe = null);
-    private sealed record RawRequest(string? Command = null, string[]? Sites = null,
-        [property: JsonPropertyName("sites_all")] bool SitesAll = false, string? Path = null,
-        [property: JsonPropertyName("path_section")] string? PathSection = null, int? Timeout = null);
+        [property: JsonPropertyName("use_xdupe")] bool? UseXdupe = null,
+        [property: JsonPropertyName("except_source_sites")] List<string>? ExceptSourceSites = null,
+        [property: JsonPropertyName("except_target_sites")] List<string>? ExceptTargetSites = null,
+        List<string>? Affils = null,
+        [property: JsonPropertyName("force_binary")] bool? ForceBinary = null,
+        List<SiteSectionRequest>? Sections = null);
+
+    private sealed record SiteSectionRequest(string Name = "", string Path = "");
     private sealed record SectionRequest(string? Name = null, string? Path = null, int? Hotkey = null);
 }
+
+internal sealed record RawRequest(string? Command = null, string[]? Sites = null,
+    [property: JsonPropertyName("sites_all")] bool SitesAll = false, string? Path = null,
+    [property: JsonPropertyName("path_section")] string? PathSection = null, int? Timeout = null);
+
+internal sealed record RawApiResult(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("result")] string Result,
+    [property: JsonPropertyName("code")] int? Code,
+    [property: JsonPropertyName("error")] string? Error);
 
 internal sealed record ApiTransferRequest(
     [property: JsonPropertyName("src_site")] string? SrcSite = null,

@@ -741,15 +741,16 @@ public partial class MainWindow : Window
     private void LocalList_Drop(object sender, DragEventArgs e) { if (e.Data.GetData(DataFormats.Text) as string == "ioftp-right") Download_Click(sender, e); }
     private void RemoteList_Drop(object sender, DragEventArgs e) { if (e.Data.GetData(DataFormats.Text) as string == "ioftp-left") Upload_Click(sender, e); }
 
-    private QueueEntryView AddQueue(string name, string source, string destination, TransferDirection direction, long totalBytes = 0, Guid? sourceProfileId = null)
+    private QueueEntryView AddQueue(string name, string source, string destination, TransferDirection direction, long totalBytes = 0, Guid? sourceProfileId = null, Guid? destinationProfileId = null)
     {
-        var entry = new QueueEntryView(name, source, destination, direction, totalBytes: totalBytes) { SourceProfileId = sourceProfileId, QueuedAt = DateTimeOffset.Now }; _queue.Add(entry); SaveQueue(); UpdateQueueStatus(); return entry;
+        var entry = new QueueEntryView(name, source, destination, direction, totalBytes: totalBytes) { SourceProfileId = sourceProfileId, DestinationProfileId = destinationProfileId, QueuedAt = DateTimeOffset.Now }; _queue.Add(entry); SaveQueue(); UpdateQueueStatus(); return entry;
     }
 
     private void Schedule(QueueEntryView entry)
     {
         var (sourceSite, destinationSite) = SitesFor(entry.Direction);
         sourceSite ??= entry.SourceProfileId;
+        destinationSite ??= entry.DestinationProfileId;
         entry.State = "Queued";
         entry.QueuedAt ??= DateTimeOffset.Now;
         _engine.Enqueue([new TransferWorkItem(entry.Id, entry.Id, entry.Name, sourceSite, destinationSite,
@@ -765,7 +766,7 @@ public partial class MainWindow : Window
         TransferDirection.DownloadFromLeft => (_leftProfile?.Id, null),
         TransferDirection.RelayLeftToRight => (_leftProfile?.Id, _rightProfile?.Id),
         TransferDirection.RelayRightToLeft => (_rightProfile?.Id, _leftProfile?.Id),
-        TransferDirection.ApiDownload => (null, null),
+        TransferDirection.ApiDownload or TransferDirection.ApiFxp => (null, null),
         _ => (null, null)
     };
 
@@ -773,11 +774,16 @@ public partial class MainWindow : Window
     {
         var needsLeft = entry.Direction is TransferDirection.UploadToLeft or TransferDirection.DownloadFromLeft or TransferDirection.RelayLeftToRight or TransferDirection.RelayRightToLeft;
         var needsRight = entry.Direction is TransferDirection.Download or TransferDirection.Upload or TransferDirection.RelayLeftToRight or TransferDirection.RelayRightToLeft;
-        var apiProfile = entry.Direction == TransferDirection.ApiDownload ? new ProfileStore().Load().FirstOrDefault(profile => profile.Id == entry.SourceProfileId) : null;
-        if ((needsLeft && _leftProfile is null) || (needsRight && _rightProfile is null) || (entry.Direction == TransferDirection.ApiDownload && apiProfile is null))
+        var profiles = new ProfileStore().Load();
+        var apiProfile = entry.Direction == TransferDirection.ApiDownload ? profiles.FirstOrDefault(profile => profile.Id == entry.SourceProfileId) : null;
+        var apiFxpSource = entry.Direction == TransferDirection.ApiFxp ? profiles.FirstOrDefault(profile => profile.Id == entry.SourceProfileId) : null;
+        var apiFxpDestination = entry.Direction == TransferDirection.ApiFxp ? profiles.FirstOrDefault(profile => profile.Id == entry.DestinationProfileId) : null;
+        if ((needsLeft && _leftProfile is null) || (needsRight && _rightProfile is null) || (entry.Direction == TransferDirection.ApiDownload && apiProfile is null) ||
+            (entry.Direction == TransferDirection.ApiFxp && (apiFxpSource is null || apiFxpDestination is null)))
             throw new InvalidOperationException("A required site is not connected.");
         FtpRemoteSession? leftWorker = null; FtpRemoteSession? rightWorker = null;
         FtpRemoteSession? apiWorker = null;
+        FtpRemoteSession? apiFxpSourceWorker = null; FtpRemoteSession? apiFxpDestinationWorker = null;
         try
         {
             entry.State = "Transferring";
@@ -787,6 +793,8 @@ public partial class MainWindow : Window
             if (needsLeft) leftWorker = await CreateWorkerAsync(_leftProfile!, cancellationToken);
             if (needsRight) rightWorker = await CreateWorkerAsync(_rightProfile!, cancellationToken);
             if (apiProfile is not null) apiWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiProfile), cancellationToken);
+            if (apiFxpSource is not null) apiFxpSourceWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpSource), cancellationToken);
+            if (apiFxpDestination is not null) apiFxpDestinationWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpDestination), cancellationToken);
             var progress = new Progress<long>(bytes =>
             {
                 entry.BytesTransferred = bytes;
@@ -814,8 +822,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                var sourceSession = entry.Direction == TransferDirection.RelayLeftToRight ? leftWorker! : rightWorker!;
-                var destinationSession = entry.Direction == TransferDirection.RelayLeftToRight ? rightWorker! : leftWorker!;
+                var sourceSession = entry.Direction == TransferDirection.ApiFxp ? apiFxpSourceWorker! : entry.Direction == TransferDirection.RelayLeftToRight ? leftWorker! : rightWorker!;
+                var destinationSession = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestinationWorker! : entry.Direction == TransferDirection.RelayLeftToRight ? rightWorker! : leftWorker!;
                 await EnsureRemoteDirectoryAsync(destinationSession, RemoteParent(entry.Destination), cancellationToken);
                 var directFxpAvailable = destinationSession.Capabilities.Contains("CPSV") ||
                     (sourceSession.Capabilities.Contains("SSCN") && destinationSession.Capabilities.Contains("SSCN"));
@@ -826,7 +834,7 @@ public partial class MainWindow : Window
                         LogText.AppendText($"{Environment.NewLine}Attempting direct secure FXP: {entry.Name}");
                         var fxpStartedAt = DateTime.UtcNow;
                         using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        var destinationProfile = entry.Direction == TransferDirection.RelayLeftToRight ? _rightProfile! : _leftProfile!;
+                        var destinationProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestination! : entry.Direction == TransferDirection.RelayLeftToRight ? _rightProfile! : _leftProfile!;
                         var monitor = MonitorFxpAsync(destinationProfile, entry, monitorCancellation.Token);
                         try { await sourceSession.FxpToAsync(destinationSession, entry.Source, entry.Destination, cancellationToken); }
                         finally
@@ -854,12 +862,23 @@ public partial class MainWindow : Window
                     catch (Exception fxpException)
                     {
                         LogText.AppendText($"{Environment.NewLine}Direct FXP rejected ({FriendlyMessage(fxpException)}). Reconnecting for client relay…");
-                        if (leftWorker is not null) await leftWorker.DisposeAsync();
-                        if (rightWorker is not null) await rightWorker.DisposeAsync();
-                        leftWorker = await CreateWorkerAsync(_leftProfile!, cancellationToken);
-                        rightWorker = await CreateWorkerAsync(_rightProfile!, cancellationToken);
-                        sourceSession = entry.Direction == TransferDirection.RelayLeftToRight ? leftWorker : rightWorker;
-                        destinationSession = entry.Direction == TransferDirection.RelayLeftToRight ? rightWorker : leftWorker;
+                        if (entry.Direction == TransferDirection.ApiFxp)
+                        {
+                            if (apiFxpSourceWorker is not null) await apiFxpSourceWorker.DisposeAsync();
+                            if (apiFxpDestinationWorker is not null) await apiFxpDestinationWorker.DisposeAsync();
+                            apiFxpSourceWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpSource!), cancellationToken);
+                            apiFxpDestinationWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpDestination!), cancellationToken);
+                            sourceSession = apiFxpSourceWorker; destinationSession = apiFxpDestinationWorker;
+                        }
+                        else
+                        {
+                            if (leftWorker is not null) await leftWorker.DisposeAsync();
+                            if (rightWorker is not null) await rightWorker.DisposeAsync();
+                            leftWorker = await CreateWorkerAsync(_leftProfile!, cancellationToken);
+                            rightWorker = await CreateWorkerAsync(_rightProfile!, cancellationToken);
+                            sourceSession = entry.Direction == TransferDirection.RelayLeftToRight ? leftWorker : rightWorker;
+                            destinationSession = entry.Direction == TransferDirection.RelayLeftToRight ? rightWorker : leftWorker;
+                        }
                     }
                 }
                 else LogText.AppendText($"{Environment.NewLine}SSCN is not advertised by both servers; using client relay.");
@@ -906,6 +925,8 @@ public partial class MainWindow : Window
             if (leftWorker is not null) await leftWorker.DisposeAsync();
             if (rightWorker is not null) await rightWorker.DisposeAsync();
             if (apiWorker is not null) await apiWorker.DisposeAsync();
+            if (apiFxpSourceWorker is not null) await apiFxpSourceWorker.DisposeAsync();
+            if (apiFxpDestinationWorker is not null) await apiFxpDestinationWorker.DisposeAsync();
             SaveQueue(); UpdateQueueStatus(); LogText.ScrollToEnd();
         }
     }
@@ -916,6 +937,7 @@ public partial class MainWindow : Window
         {
             TransferDirection.Upload or TransferDirection.RelayLeftToRight => _rightProfile,
             TransferDirection.UploadToLeft or TransferDirection.RelayRightToLeft => _leftProfile,
+            TransferDirection.ApiFxp => new ProfileStore().Load().FirstOrDefault(profile => profile.Id == entry.DestinationProfileId),
             _ => null
         };
         return profile?.EffectiveOptions.UseXdupe == true;
@@ -942,13 +964,13 @@ public partial class MainWindow : Window
 
     private Dictionary<string, string> TransferScriptVariables(QueueEntryView entry, string status)
     {
-        var sites = SitesFor(entry.Direction); var profiles = new ProfileStore().Load(); var sourceId = sites.Source ?? entry.SourceProfileId;
+        var sites = SitesFor(entry.Direction); var profiles = new ProfileStore().Load(); var sourceId = sites.Source ?? entry.SourceProfileId; var destinationId = sites.Destination ?? entry.DestinationProfileId;
         return new()
         {
             ["name"] = entry.Name, ["source"] = entry.Source, ["destination"] = entry.Destination, ["path"] = entry.Destination,
             ["status"] = status, ["direction"] = entry.Direction.ToString(),
             ["source_site"] = profiles.FirstOrDefault(profile => profile.Id == sourceId)?.Name ?? "Local",
-            ["destination_site"] = profiles.FirstOrDefault(profile => profile.Id == sites.Destination)?.Name ?? "Local"
+            ["destination_site"] = profiles.FirstOrDefault(profile => profile.Id == destinationId)?.Name ?? "Local"
         };
     }
 
@@ -1129,7 +1151,7 @@ public partial class MainWindow : Window
             var saved = JsonSerializer.Deserialize<List<QueueSnapshot>>(File.ReadAllText(source)) ?? [];
             foreach (var item in saved)
                 _queue.Add(new QueueEntryView(item.Name, item.Source, item.Destination, item.Direction, item.Id == Guid.Empty ? Guid.NewGuid() : item.Id)
-                { State = item.State is "Completed" ? "Completed" : "Paused", BytesTransferred = item.BytesTransferred, TotalBytes = item.TotalBytes, SourceProfileId = item.SourceProfileId, QueuedAt = item.QueuedAt, StartedAt = item.StartedAt });
+                { State = item.State is "Completed" ? "Completed" : "Paused", BytesTransferred = item.BytesTransferred, TotalBytes = item.TotalBytes, SourceProfileId = item.SourceProfileId, DestinationProfileId = item.DestinationProfileId, QueuedAt = item.QueuedAt, StartedAt = item.StartedAt });
             UpdateQueueStatus();
             if (source == _oldQueuePath) SaveQueue();
         }
@@ -1141,7 +1163,7 @@ public partial class MainWindow : Window
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_queuePath)!);
-            var snapshots = _queue.Select(item => new QueueSnapshot(item.Name, item.Source, item.Destination, item.Direction, item.State, item.BytesTransferred, item.TotalBytes, item.Id, item.SourceProfileId, item.QueuedAt, item.StartedAt));
+            var snapshots = _queue.Select(item => new QueueSnapshot(item.Name, item.Source, item.Destination, item.Direction, item.State, item.BytesTransferred, item.TotalBytes, item.Id, item.SourceProfileId, item.DestinationProfileId, item.QueuedAt, item.StartedAt));
             var temporary = _queuePath + ".tmp"; File.WriteAllText(temporary, JsonSerializer.Serialize(snapshots, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(temporary, _queuePath, true);
         }
@@ -1461,8 +1483,13 @@ public partial class MainWindow : Window
         {
             _apiServer = new ApiServer();
             await _apiServer.StartAsync(_settings, () => Dispatcher.Invoke(GetTransferJobs), StartApiTransferAsync, StartApiDownloadAsync,
-                id => Dispatcher.Invoke(() => RemoveTransferJob(id)), id => Dispatcher.Invoke(() => ResetTransferJob(id)));
-            LogText.AppendText($"{Environment.NewLine}HTTPS/JSON API listening on https://{(_settings.ApiLocalhostOnly ? "localhost" : "0.0.0.0")}:{_settings.HttpsApiPort}");
+                id => Dispatcher.Invoke(() => RemoveTransferJob(id)), id => Dispatcher.Invoke(() => ResetTransferJob(id)),
+                message => Dispatcher.BeginInvoke(() =>
+                {
+                    LogText.AppendText($"{Environment.NewLine}{message}");
+                    LogText.ScrollToEnd();
+                }));
+            LogText.AppendText($"{Environment.NewLine}HTTPS/JSON API and cbftp UDP listening on {(_settings.ApiLocalhostOnly ? "localhost" : "0.0.0.0")}:{_settings.HttpsApiPort}");
         }
         catch (Exception exception)
         {
@@ -1476,20 +1503,38 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(request.SrcSite) || string.IsNullOrWhiteSpace(request.DstSite) || string.IsNullOrWhiteSpace(request.Name))
             throw new ArgumentException("src_site, dst_site and name are required for FXP jobs.");
-        var leftToRight = _leftProfile?.Name.Equals(request.SrcSite, StringComparison.OrdinalIgnoreCase) == true && _rightProfile?.Name.Equals(request.DstSite, StringComparison.OrdinalIgnoreCase) == true;
-        var rightToLeft = _rightProfile?.Name.Equals(request.SrcSite, StringComparison.OrdinalIgnoreCase) == true && _leftProfile?.Name.Equals(request.DstSite, StringComparison.OrdinalIgnoreCase) == true;
-        if (!leftToRight && !rightToLeft) throw new InvalidOperationException("Both API FXP sites must currently be connected in the two Remote panels.");
-        var sourceSession = leftToRight ? _leftRemoteSession! : _remoteSession!; var destinationSession = leftToRight ? _remoteSession! : _leftRemoteSession!;
+        var profiles = new ProfileStore().Load();
+        var sourceProfile = profiles.FirstOrDefault(profile => profile.Name.Equals(request.SrcSite, StringComparison.OrdinalIgnoreCase))
+            ?? throw new KeyNotFoundException($"Site {request.SrcSite} was not found.");
+        var destinationProfile = profiles.FirstOrDefault(profile => profile.Name.Equals(request.DstSite, StringComparison.OrdinalIgnoreCase))
+            ?? throw new KeyNotFoundException($"Site {request.DstSite} was not found.");
+        foreach (var profile in new[] { sourceProfile, destinationProfile })
+        {
+            var options = profile.EffectiveOptions;
+            _engine.RegisterOrUpdateSite(new SitePolicy(profile.Id, profile.Name, options.MaxSlots, options.MaxDownloadSlots, options.MaxUploadSlots, options.Priority));
+        }
         var sourceBase = NormalizeRemotePath(request.SrcSection is not null ? ResolveApiSection(request.SrcSite, request.SrcSection) : request.SrcPath ?? "/");
         var destinationBase = NormalizeRemotePath(request.DstSection is not null ? ResolveApiSection(request.DstSite, request.DstSection) : request.DstPath ?? "/");
         var source = NormalizeRemotePath($"{sourceBase}/{request.Name}"); var destination = NormalizeRemotePath($"{destinationBase}/{request.Name}");
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5)); await using var sourceSession = new FtpRemoteSession();
+        await sourceSession.ConnectAsync(ApplyGlobalProxy(sourceProfile), timeout.Token);
         var item = (await sourceSession.ListAsync(sourceBase, timeout.Token)).FirstOrDefault(entry => entry.Name.Equals(request.Name, StringComparison.OrdinalIgnoreCase))
             ?? throw new FileNotFoundException($"{request.Name} was not found on {request.SrcSite}.");
-        var direction = leftToRight ? TransferDirection.RelayLeftToRight : TransferDirection.RelayRightToLeft;
-        if (item.IsDirectory) await QueueRemoteDirectoryAsync(sourceSession, destinationSession, source, destination, direction);
-        else Schedule(AddQueue(item.Name, item.FullPath, destination, direction, item.Size ?? 0));
-        return new { name = request.Name, status = "QUEUED" };
+        var queued = 0;
+        async Task QueueDirectory(string sourceDirectory, string destinationDirectory)
+        {
+            foreach (var child in await sourceSession.ListAsync(sourceDirectory, timeout.Token))
+            {
+                if (child.Name is "." or ".." || ShouldSkip(child.Name)) continue;
+                var childDestination = NormalizeRemotePath($"{destinationDirectory}/{child.Name}");
+                if (child.IsDirectory) await QueueDirectory(child.FullPath, childDestination);
+                else { Schedule(AddQueue(child.Name, child.FullPath, childDestination, TransferDirection.ApiFxp, child.Size ?? 0, sourceProfile.Id, destinationProfile.Id)); queued++; }
+            }
+        }
+        if (item.IsDirectory) await QueueDirectory(source, destination);
+        else { Schedule(AddQueue(item.Name, item.FullPath, destination, TransferDirection.ApiFxp, item.Size ?? 0, sourceProfile.Id, destinationProfile.Id)); queued++; }
+        LogText.AppendText($"{Environment.NewLine}API queued FXP {request.Name}: {request.SrcSite} → {request.DstSite} ({queued} files)"); LogText.ScrollToEnd();
+        return new { name = request.Name, status = "QUEUED", files = queued, source = request.SrcSite, target = request.DstSite };
     });
 
     private async Task<object> StartApiDownloadAsync(ApiDownloadRequest request) => await await Dispatcher.InvokeAsync(async () =>
@@ -1542,12 +1587,13 @@ public partial class MainWindow : Window
 
     private IReadOnlyList<TransferJobInfo> GetTransferJobs() => _queue.Select(entry =>
     {
-        var remoteToRemote = entry.Direction is TransferDirection.RelayLeftToRight or TransferDirection.RelayRightToLeft;
+        var remoteToRemote = entry.Direction is TransferDirection.RelayLeftToRight or TransferDirection.RelayRightToLeft or TransferDirection.ApiFxp;
         var direction = entry.Direction switch
         {
             TransferDirection.Download or TransferDirection.DownloadFromLeft or TransferDirection.ApiDownload => "R→L",
             TransferDirection.Upload or TransferDirection.UploadToLeft => "L→R",
             TransferDirection.RelayLeftToRight => "R1→R2",
+            TransferDirection.ApiFxp => "API FXP",
             _ => "R2→R1"
         };
         var progressPercent = entry.State == "Completed" ? 100d : entry.TotalBytes > 0 ? Math.Clamp(entry.BytesTransferred * 100d / entry.TotalBytes, 0, 100) : 0d;
@@ -1562,12 +1608,12 @@ public partial class MainWindow : Window
     private sealed record LocalEntryView(string Name, string Size, string Modified, string Attributes, string FullPath, bool IsDirectory);
     private sealed record RemoteEntryView(string Name, string DisplaySize, string DisplayModified, string Attributes, string FullPath, bool IsDirectory);
 
-    private enum TransferDirection { Download, Upload, UploadToLeft, DownloadFromLeft, RelayLeftToRight, RelayRightToLeft, ApiDownload }
+    private enum TransferDirection { Download, Upload, UploadToLeft, DownloadFromLeft, RelayLeftToRight, RelayRightToLeft, ApiDownload, ApiFxp }
     private sealed record QuickSiteChoice(string Label, ConnectionProfile? Profile)
     {
         public override string ToString() => Label;
     }
-    private sealed record QueueSnapshot(string Name, string Source, string Destination, TransferDirection Direction, string State, long BytesTransferred, long TotalBytes = 0, Guid Id = default, Guid? SourceProfileId = null, DateTimeOffset? QueuedAt = null, DateTimeOffset? StartedAt = null);
+    private sealed record QueueSnapshot(string Name, string Source, string Destination, TransferDirection Direction, string State, long BytesTransferred, long TotalBytes = 0, Guid Id = default, Guid? SourceProfileId = null, Guid? DestinationProfileId = null, DateTimeOffset? QueuedAt = null, DateTimeOffset? StartedAt = null);
 
     private sealed class QueueEntryView(string name, string source, string destination, TransferDirection direction, Guid? id = null, long totalBytes = 0) : INotifyPropertyChanged
     {
@@ -1580,6 +1626,7 @@ public partial class MainWindow : Window
         private long _speedBytesPerSecond;
         public long SpeedBytesPerSecond { get => _speedBytesPerSecond; set { _speedBytesPerSecond = value; Changed(); } }
         public Guid? SourceProfileId { get; set; }
+        public Guid? DestinationProfileId { get; set; }
         public DateTimeOffset? QueuedAt { get; set; }
         public DateTimeOffset? StartedAt { get; set; }
         public DateTime LastPersistedAt { get; set; }

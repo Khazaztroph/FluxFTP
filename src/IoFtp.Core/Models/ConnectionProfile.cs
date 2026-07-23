@@ -52,7 +52,8 @@ public sealed record SiteOptions(
     bool SecureFileListings = true,
     bool NeedsPret = false,
     bool CeprSupported = false,
-    bool UseXdupe = false);
+    bool UseXdupe = false,
+    string Affils = "");
 
 public sealed record ConnectionProfile(
     Guid Id,
