@@ -2,6 +2,19 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.11 — 2026-07-26
+
+### Added
+
+- Automatic nuke detection for common ioFTPD/glFTPD directory and marker-file names.
+- A Status column and red highlighting for nuked entries in both file panes.
+- Nuke status fields in the `/path` API response.
+- A manual warning and override before transferring a nuked remote folder.
+- Safe blocking of nuked releases before API/d-tool FXP or download jobs are queued.
+- Per-site direct FXP protection mode: Auto keeps TLS mandatory, while Clear explicitly permits PASV/PORT FXP without data-channel TLS.
+- `fxp_protection` support in the sites API for DrFTPD and other compatibility workflows.
+- Fixed an application crash when DrFTPD returns `550` while a remote directory is queued recursively; inaccessible subfolders are now logged and skipped.
+
 ## 1.0.10 — 2026-07-23
 
 ### Added

@@ -40,6 +40,14 @@ used in API or d-tool download commands instead of the technical site name.
 Sections can enforce release-name prechecks with wildcard or `regex:` allow and
 deny rules. Warning mode allows a manual override, while Block mode prevents PRE
 and section-based API/d-tool race or FXP jobs.
+Common ioFTPD/glFTPD nuke directory names and marker files are detected
+automatically. Nuked entries are highlighted in both panes, manual transfers
+require confirmation, and unattended API/d-tool transfers are blocked before
+any files are queued. The `/path` API exposes `nuked` and `nuke_reason`.
+Direct FXP protection is configurable per site. The default **Auto** mode always
+requires TLS-protected server-to-server data through CPSV/SSCN. **Clear** must be
+selected explicitly for a site before FluxFTP will use unencrypted PASV/PORT FXP;
+the FTPS control logins remain encrypted.
 
 Transfer Queue and Transfer Jobs provide graphical per-file progress bars, queued
 and started timestamps, live speed information, and an aggregate activity bar in

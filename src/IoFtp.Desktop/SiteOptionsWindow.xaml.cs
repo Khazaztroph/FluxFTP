@@ -20,6 +20,14 @@ public partial class SiteOptionsWindow : Window
         NeedsPretBox.IsChecked = options.NeedsPret;
         CeprBox.IsChecked = options.CeprSupported;
         XdupeBox.IsChecked = options.UseXdupe;
+        FxpProtectionBox.ItemsSource = new[]
+        {
+            new FxpProtectionChoice(FxpProtectionMode.AutoSecure, "Auto — secure FXP (TLS)"),
+            new FxpProtectionChoice(FxpProtectionMode.Clear, "Clear — FXP without data TLS")
+        };
+        FxpProtectionBox.DisplayMemberPath = nameof(FxpProtectionChoice.Label);
+        FxpProtectionBox.SelectedItem = ((FxpProtectionChoice[])FxpProtectionBox.ItemsSource)
+            .First(item => item.Mode == options.FxpProtection);
         BlockFromBox.Text = options.BlockTransfersFrom; BlockToBox.Text = options.BlockTransfersTo;
         AffilsBox.Text = options.Affils;
     }
@@ -35,10 +43,12 @@ public partial class SiteOptionsWindow : Window
         Options = new SiteOptions(slots, uploads, downloads, priority, AllowUploadBox.IsChecked == true, AllowDownloadBox.IsChecked == true,
             StayLoggedInBox.IsChecked == true, string.IsNullOrWhiteSpace(BasePathBox.Text) ? "/" : BasePathBox.Text.Trim(),
             TlsTransfersBox.IsChecked == true, BinaryModeBox.IsChecked == true, idle, BlockFromBox.Text.Trim(), BlockToBox.Text.Trim(), SecureListingsBox.IsChecked == true,
-            NeedsPretBox.IsChecked == true, CeprBox.IsChecked == true, XdupeBox.IsChecked == true, AffilsBox.Text.Trim());
+            NeedsPretBox.IsChecked == true, CeprBox.IsChecked == true, XdupeBox.IsChecked == true, AffilsBox.Text.Trim(),
+            (FxpProtectionBox.SelectedItem as FxpProtectionChoice)?.Mode ?? FxpProtectionMode.AutoSecure);
         DialogResult = true;
     }
 
     private static bool TryPositive(string text, out int value) => int.TryParse(text, out value) && value > 0;
     private static bool TryNonNegative(string text, out int value) => int.TryParse(text, out value) && value >= 0;
+    private sealed record FxpProtectionChoice(FxpProtectionMode Mode, string Label);
 }

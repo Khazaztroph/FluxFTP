@@ -176,7 +176,12 @@ internal sealed class ApiServer : IAsyncDisposable
             using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(timeout ?? 60, 1, 300)));
             await using var session = new FtpRemoteSession(); await session.ConnectAsync(profile, cancellation.Token);
             path = ResolvePath(site, path); var entries = await session.ListAsync(path, cancellation.Token);
-            return Results.Json(entries.Select(entry => new { name = entry.Name, path = entry.FullPath, dir = entry.IsDirectory, size = entry.Size, modified = entry.ModifiedAt, attributes = entry.Attributes }));
+            return Results.Json(entries.Select(entry =>
+            {
+                var nuke = NukeDetector.DetectName(entry.Name);
+                return new { name = entry.Name, path = entry.FullPath, dir = entry.IsDirectory, size = entry.Size,
+                    modified = entry.ModifiedAt, attributes = entry.Attributes, nuked = nuke.IsNuked, nuke_reason = nuke.Reason };
+            }));
         });
         _app.MapGet("/file", async (string site, string path, int? timeout) =>
         {
@@ -284,6 +289,7 @@ internal sealed class ApiServer : IAsyncDisposable
         max_sim_up = profile.EffectiveOptions.MaxUploadSlots, max_sim_down = profile.EffectiveOptions.MaxDownloadSlots,
         priority = profile.EffectiveOptions.Priority, needs_pret = profile.EffectiveOptions.NeedsPret,
         cepr_supported = profile.EffectiveOptions.CeprSupported, use_xdupe = profile.EffectiveOptions.UseXdupe,
+        fxp_protection = profile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear ? "CLEAR" : "AUTO",
         except_source_sites = SplitList(profile.EffectiveOptions.BlockTransfersFrom), except_target_sites = SplitList(profile.EffectiveOptions.BlockTransfersTo),
         affils = SplitList(profile.EffectiveOptions.Affils), force_binary = profile.EffectiveOptions.ForceBinaryMode,
         sections = new SectionStore().Load().Select(section => new { name = section.Name, path = SitePath(section, profile.Name) }).Where(section => section.path is not null) };
@@ -297,6 +303,7 @@ internal sealed class ApiServer : IAsyncDisposable
             UseXdupe: request.UseXdupe ?? false, BlockTransfersFrom: string.Join(' ', request.ExceptSourceSites ?? []),
             BlockTransfersTo: string.Join(' ', request.ExceptTargetSites ?? []), ForceBinaryMode: request.ForceBinary ?? true,
             Affils: string.Join(' ', request.Affils ?? []));
+        options = options with { FxpProtection = ParseFxpProtection(request.FxpProtection) };
         return new(Guid.NewGuid(), request.Name!, primary.Host, primary.Port, request.User ?? "anonymous", protocol,
             request.Password ?? "", ListingMode: ParseListingMode(request.ListCommand),
             Options: options, AlternateAddresses: string.Join(' ', alternates), Description: request.Description ?? "");
@@ -315,6 +322,7 @@ internal sealed class ApiServer : IAsyncDisposable
             Priority = request.Priority ?? profile.EffectiveOptions.Priority, NeedsPret = request.NeedsPret ?? profile.EffectiveOptions.NeedsPret,
             CeprSupported = request.CeprSupported ?? profile.EffectiveOptions.CeprSupported,
             UseXdupe = request.UseXdupe ?? profile.EffectiveOptions.UseXdupe,
+            FxpProtection = request.FxpProtection is null ? profile.EffectiveOptions.FxpProtection : ParseFxpProtection(request.FxpProtection),
             BlockTransfersFrom = request.ExceptSourceSites is null ? profile.EffectiveOptions.BlockTransfersFrom : string.Join(' ', request.ExceptSourceSites),
             BlockTransfersTo = request.ExceptTargetSites is null ? profile.EffectiveOptions.BlockTransfersTo : string.Join(' ', request.ExceptTargetSites),
             Affils = request.Affils is null ? profile.EffectiveOptions.Affils : string.Join(' ', request.Affils),
@@ -327,6 +335,8 @@ internal sealed class ApiServer : IAsyncDisposable
     private static void ParseAddress(string address, out string host, out int? port)
     { var separator = address.LastIndexOf(':'); if (separator > 0 && int.TryParse(address[(separator + 1)..], out var parsed)) { host = address[..separator]; port = parsed; } else { host = address; port = null; } }
     private static TransferProtocol ParseTls(string? value) => value?.ToUpperInvariant() switch { "IMPLICIT" => TransferProtocol.FtpsImplicit, "NONE" => TransferProtocol.Ftp, _ => TransferProtocol.FtpsExplicit };
+    private static FxpProtectionMode ParseFxpProtection(string? value) =>
+        value?.Equals("CLEAR", StringComparison.OrdinalIgnoreCase) == true ? FxpProtectionMode.Clear : FxpProtectionMode.AutoSecure;
     private static DirectoryListingMode ParseListingMode(string? value) => value?.ToUpperInvariant() switch
     {
         "LIST" => DirectoryListingMode.ListOnly,
@@ -418,6 +428,7 @@ internal sealed class ApiServer : IAsyncDisposable
         [property: JsonPropertyName("needs_pret")] bool? NeedsPret = null,
         [property: JsonPropertyName("cepr_supported")] bool? CeprSupported = null,
         [property: JsonPropertyName("use_xdupe")] bool? UseXdupe = null,
+        [property: JsonPropertyName("fxp_protection")] string? FxpProtection = null,
         [property: JsonPropertyName("except_source_sites")] List<string>? ExceptSourceSites = null,
         [property: JsonPropertyName("except_target_sites")] List<string>? ExceptTargetSites = null,
         List<string>? Affils = null,

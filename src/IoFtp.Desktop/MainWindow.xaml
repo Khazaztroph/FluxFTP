@@ -80,6 +80,10 @@
                     <ListView x:Name="LocalList" Margin="8,0,8,8" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
                               PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="LocalList_MouseMove"
                               PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True" Drop="LocalList_Drop">
+                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
+                            <Style.Triggers><DataTrigger Binding="{Binding IsNuked}" Value="True"><Setter Property="Foreground" Value="#F07178"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style></ListView.ItemContainerStyle>
                         <ListView.ContextMenu><ContextMenu>
                             <MenuItem Header="Transfer now →" Click="TransferLeftNow_Click"/><MenuItem Header="Queue transfer →" Click="QueueLeft_Click"/><Separator/>
                             <MenuItem Header="Create folder..." Click="CreateFolderLeft_Click"/><MenuItem Header="Rename..." Click="RenameLeft_Click"/><MenuItem Header="Delete" Click="DeleteLeft_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodLeft_Click"/><Separator/>
@@ -91,6 +95,7 @@
                                 <GridViewColumn Header="Size" DisplayMemberBinding="{Binding Size}" Width="90" />
                                 <GridViewColumn DisplayMemberBinding="{Binding Modified}" Width="150"><GridViewColumn.Header><GridViewColumnHeader x:Name="LeftModifiedHeader" Content="Modified" Tag="Modified" Click="LeftHeader_Click"/></GridViewColumn.Header></GridViewColumn>
                                 <GridViewColumn Header="Attributes" DisplayMemberBinding="{Binding Attributes}" Width="110" />
+                                <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status}" Width="150" />
                             </GridView>
                         </ListView.View>
                     </ListView>
@@ -120,6 +125,10 @@
                     <ListView x:Name="RemoteList" Margin="8,0,8,8" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"
                               PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="RemoteList_MouseMove"
                               PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True" Drop="RemoteList_Drop">
+                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
+                            <Style.Triggers><DataTrigger Binding="{Binding IsNuked}" Value="True"><Setter Property="Foreground" Value="#F07178"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style></ListView.ItemContainerStyle>
                         <ListView.ContextMenu><ContextMenu>
                             <MenuItem Header="← Transfer now" Click="TransferRightNow_Click"/><MenuItem Header="← Queue transfer" Click="QueueRight_Click"/><Separator/>
                             <MenuItem Header="Create folder..." Click="CreateFolderRight_Click"/><MenuItem Header="Rename..." Click="RenameRight_Click"/><MenuItem Header="Delete" Click="DeleteRight_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodRight_Click"/><Separator/>
@@ -130,6 +139,7 @@
                             <GridViewColumn Header="Size" DisplayMemberBinding="{Binding DisplaySize}" Width="90"/>
                             <GridViewColumn DisplayMemberBinding="{Binding DisplayModified}" Width="150"><GridViewColumn.Header><GridViewColumnHeader x:Name="RightModifiedHeader" Content="Modified" Tag="DisplayModified" Click="RightHeader_Click"/></GridViewColumn.Header></GridViewColumn>
                             <GridViewColumn Header="Attributes" DisplayMemberBinding="{Binding Attributes}" Width="110"/>
+                            <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status}" Width="150"/>
                         </GridView></ListView.View>
                     </ListView>
                 </DockPanel>

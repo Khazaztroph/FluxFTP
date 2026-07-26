@@ -95,7 +95,7 @@ public partial class MainWindow : Window
                         ? Directory.GetLastWriteTime(path)
                         : File.GetLastWriteTime(path);
                     var size = isDirectory ? "Folder" : FormatSize(new FileInfo(path).Length);
-                    return new LocalEntryView(Path.GetFileName(path), size, modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), path, isDirectory);
+                    return new LocalEntryView(Path.GetFileName(path), size, modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), "", false, path, isDirectory);
                 })
                 .OrderByDescending(entry => entry.IsDirectory)
                 .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
@@ -307,7 +307,8 @@ public partial class MainWindow : Window
         _leftRemoteDirectory = NormalizeRemotePath(path); LocalPath.Text = _leftRemoteDirectory;
         LocalList.ItemsSource = entries.Select(entry => new LocalEntryView(entry.Name,
             entry.IsDirectory ? "Folder" : entry.Size is { } size ? FormatSize(size) : "—",
-            entry.ModifiedAt?.LocalDateTime.ToString("yyyy-MM-dd HH:mm") ?? "—", entry.Attributes, entry.FullPath, entry.IsDirectory))
+            entry.ModifiedAt?.LocalDateTime.ToString("yyyy-MM-dd HH:mm") ?? "—", entry.Attributes,
+            NukeDetector.DetectName(entry.Name).Display, NukeDetector.DetectName(entry.Name).IsNuked, entry.FullPath, entry.IsDirectory))
             .OrderByDescending(entry => entry.IsDirectory).ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
@@ -323,7 +324,7 @@ public partial class MainWindow : Window
     {
         // Keep Size, Modified and Attributes visible at every DPI setting;
         // the Name column receives the remaining panel width.
-        var width = Math.Max(120, e.NewSize.Width - 90 - 150 - 110 - 24);
+        var width = Math.Max(120, e.NewSize.Width - 90 - 150 - 110 - 150 - 24);
         if (ReferenceEquals(sender, LocalList)) LeftNameColumn.Width = width;
         else if (ReferenceEquals(sender, RemoteList)) RightNameColumn.Width = width;
     }
@@ -369,7 +370,7 @@ public partial class MainWindow : Window
             RemoteList.ItemsSource = Directory.EnumerateFileSystemEntries(full).Take(100).Select(path =>
             {
                 var folder = Directory.Exists(path); var modified = folder ? Directory.GetLastWriteTime(path) : File.GetLastWriteTime(path);
-                return new RemoteEntryView(Path.GetFileName(path), folder ? "Folder" : FormatSize(new FileInfo(path).Length), modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), path, folder);
+                return new RemoteEntryView(Path.GetFileName(path), folder ? "Folder" : FormatSize(new FileInfo(path).Length), modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), "", false, path, folder);
             }).OrderByDescending(item => item.IsDirectory).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             _rightLocalDirectory = full; RemotePath.Text = full;
         }
@@ -385,6 +386,8 @@ public partial class MainWindow : Window
             entry.IsDirectory ? "Folder" : entry.Size is { } size ? FormatSize(size) : "—",
             entry.ModifiedAt?.LocalDateTime.ToString("yyyy-MM-dd HH:mm") ?? "—",
             entry.Attributes,
+            NukeDetector.DetectName(entry.Name).Display,
+            NukeDetector.DetectName(entry.Name).IsNuked,
             entry.FullPath,
             entry.IsDirectory))
             .OrderByDescending(entry => entry.IsDirectory)
@@ -637,25 +640,49 @@ public partial class MainWindow : Window
     private async Task QueueRemoteDirectoryAsync(FtpRemoteSession source, FtpRemoteSession destination,
         string sourceRoot, string destinationRoot, TransferDirection direction)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-        var pending = new Stack<(string Source, string Destination)>();
-        var files = new List<(RemoteEntry Entry, string Destination)>();
-        pending.Push((sourceRoot, destinationRoot));
-        var fileCount = 0;
-        while (pending.Count > 0)
+        try
         {
-            var folder = pending.Pop();
-            await EnsureRemoteDirectoryAsync(destination, folder.Destination, timeout.Token);
-            foreach (var child in await source.ListAsync(folder.Source, timeout.Token))
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            var pending = new Stack<(string Source, string Destination)>();
+            var files = new List<(RemoteEntry Entry, string Destination)>();
+            pending.Push((sourceRoot, destinationRoot));
+            var fileCount = 0;
+            while (pending.Count > 0)
             {
-                var target = NormalizeRemotePath($"{folder.Destination}/{child.Name}");
-                if (child.IsDirectory) pending.Push((child.FullPath, target));
-                else if (!ShouldSkip(child.Name)) { files.Add((child, target)); fileCount++; }
+                var folder = pending.Pop();
+                IReadOnlyList<RemoteEntry> children;
+                try { children = await source.ListAsync(folder.Source, timeout.Token); }
+                catch (Exception exception) when (!folder.Source.Equals(sourceRoot, StringComparison.Ordinal))
+                {
+                    LogText.AppendText($"{Environment.NewLine}Skipped inaccessible remote folder {folder.Source}: {FriendlyMessage(exception)}");
+                    continue;
+                }
+                var nuke = NukeDetector.DetectDirectory(RemoteLeaf(folder.Source), children);
+                if (nuke.IsNuked && MessageBox.Show(
+                        $"'{RemoteLeaf(folder.Source)}' is marked {nuke.Display}.\n\nQueue it anyway?",
+                        "Nuked release", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                {
+                    LogText.AppendText($"{Environment.NewLine}Nuke detection blocked transfer: {folder.Source} ({nuke.Display}).");
+                    LogText.ScrollToEnd();
+                    return;
+                }
+                await EnsureRemoteDirectoryAsync(destination, folder.Destination, timeout.Token);
+                foreach (var child in children)
+                {
+                    var target = NormalizeRemotePath($"{folder.Destination}/{child.Name}");
+                    if (child.IsDirectory) pending.Push((child.FullPath, target));
+                    else if (!ShouldSkip(child.Name)) { files.Add((child, target)); fileCount++; }
+                }
             }
+            foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, StringComparer.OrdinalIgnoreCase))
+                Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0));
+            LogText.AppendText($"{Environment.NewLine}Queued remote folder {sourceRoot}: {fileCount} files.");
         }
-        foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, StringComparer.OrdinalIgnoreCase))
-            Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0));
-        LogText.AppendText($"{Environment.NewLine}Queued remote folder {sourceRoot}: {fileCount} files.");
+        catch (Exception exception)
+        {
+            LogText.AppendText($"{Environment.NewLine}Could not queue remote folder {sourceRoot}: {FriendlyMessage(exception)}");
+            ConnectionStatus.Text = "Remote folder queue failed";
+        }
         LogText.ScrollToEnd();
     }
 
@@ -671,8 +698,18 @@ public partial class MainWindow : Window
             while (pending.Count > 0)
             {
                 var folder = pending.Pop();
+                var children = await source.ListAsync(folder.Source, timeout.Token);
+                var nuke = NukeDetector.DetectDirectory(RemoteLeaf(folder.Source), children);
+                if (nuke.IsNuked && MessageBox.Show(
+                        $"'{RemoteLeaf(folder.Source)}' is marked {nuke.Display}.\n\nDownload it anyway?",
+                        "Nuked release", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                {
+                    LogText.AppendText($"{Environment.NewLine}Nuke detection blocked download: {folder.Source} ({nuke.Display}).");
+                    LogText.ScrollToEnd();
+                    return;
+                }
                 Directory.CreateDirectory(folder.Destination);
-                foreach (var child in await source.ListAsync(folder.Source, timeout.Token))
+                foreach (var child in children)
                 {
                     if (child.Name is "." or "..") continue;
                     var target = Path.Combine(folder.Destination, child.Name);
@@ -825,13 +862,15 @@ public partial class MainWindow : Window
                 var sourceSession = entry.Direction == TransferDirection.ApiFxp ? apiFxpSourceWorker! : entry.Direction == TransferDirection.RelayLeftToRight ? leftWorker! : rightWorker!;
                 var destinationSession = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestinationWorker! : entry.Direction == TransferDirection.RelayLeftToRight ? rightWorker! : leftWorker!;
                 await EnsureRemoteDirectoryAsync(destinationSession, RemoteParent(entry.Destination), cancellationToken);
-                var directFxpAvailable = destinationSession.Capabilities.Contains("CPSV") ||
+                var clearFxp = sourceSession.FxpProtection == FxpProtectionMode.Clear ||
+                    destinationSession.FxpProtection == FxpProtectionMode.Clear;
+                var directFxpAvailable = clearFxp || destinationSession.Capabilities.Contains("CPSV") ||
                     (sourceSession.Capabilities.Contains("SSCN") && destinationSession.Capabilities.Contains("SSCN"));
                 if (directFxpAvailable)
                 {
                     try
                     {
-                        LogText.AppendText($"{Environment.NewLine}Attempting direct secure FXP: {entry.Name}");
+                        LogText.AppendText($"{Environment.NewLine}Attempting direct {(clearFxp ? "clear" : "secure")} FXP: {entry.Name}");
                         var fxpStartedAt = DateTime.UtcNow;
                         using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                         var destinationProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestination! : entry.Direction == TransferDirection.RelayLeftToRight ? _rightProfile! : _leftProfile!;
@@ -881,7 +920,7 @@ public partial class MainWindow : Window
                         }
                     }
                 }
-                else LogText.AppendText($"{Environment.NewLine}SSCN is not advertised by both servers; using client relay.");
+                else LogText.AppendText($"{Environment.NewLine}Secure direct FXP is unavailable in Auto mode; using client relay.");
 
                 var temporary = Path.Combine(Path.GetTempPath(), $"ioftp-fxp-{Guid.NewGuid():N}.part");
                 try
@@ -1533,18 +1572,34 @@ public partial class MainWindow : Window
         var item = (await sourceSession.ListAsync(sourceBase, timeout.Token)).FirstOrDefault(entry => entry.Name.Equals(request.Name, StringComparison.OrdinalIgnoreCase))
             ?? throw new FileNotFoundException($"{request.Name} was not found on {request.SrcSite}.");
         var queued = 0;
+        var apiFiles = new List<(RemoteEntry Entry, string Destination)>();
         async Task QueueDirectory(string sourceDirectory, string destinationDirectory)
         {
-            foreach (var child in await sourceSession.ListAsync(sourceDirectory, timeout.Token))
+            var children = await sourceSession.ListAsync(sourceDirectory, timeout.Token);
+            var nuke = NukeDetector.DetectDirectory(RemoteLeaf(sourceDirectory), children);
+            if (nuke.IsNuked)
+                throw new InvalidOperationException($"Nuke detection blocked automated transfer: {sourceDirectory} ({nuke.Display}).");
+            foreach (var child in children)
             {
                 if (child.Name is "." or ".." || ShouldSkip(child.Name)) continue;
                 var childDestination = NormalizeRemotePath($"{destinationDirectory}/{child.Name}");
                 if (child.IsDirectory) await QueueDirectory(child.FullPath, childDestination);
-                else { Schedule(AddQueue(child.Name, child.FullPath, childDestination, TransferDirection.ApiFxp, child.Size ?? 0, sourceProfile.Id, destinationProfile.Id)); queued++; }
+                else apiFiles.Add((child, childDestination));
             }
         }
         if (item.IsDirectory) await QueueDirectory(source, destination);
-        else { Schedule(AddQueue(item.Name, item.FullPath, destination, TransferDirection.ApiFxp, item.Size ?? 0, sourceProfile.Id, destinationProfile.Id)); queued++; }
+        else
+        {
+            var nuke = NukeDetector.DetectName(item.Name);
+            if (nuke.IsNuked) throw new InvalidOperationException($"Nuke detection blocked automated transfer: {item.FullPath} ({nuke.Display}).");
+            apiFiles.Add((item, destination));
+        }
+        foreach (var file in apiFiles)
+        {
+            Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, TransferDirection.ApiFxp,
+                file.Entry.Size ?? 0, sourceProfile.Id, destinationProfile.Id));
+            queued++;
+        }
         LogText.AppendText($"{Environment.NewLine}API queued FXP {request.Name}: {request.SrcSite} → {request.DstSite} ({queued} files)"); LogText.ScrollToEnd();
         return new { name = request.Name, status = "QUEUED", files = queued, source = request.SrcSite, target = request.DstSite };
     });
@@ -1564,15 +1619,19 @@ public partial class MainWindow : Window
         _engine.RegisterOrUpdateSite(new SitePolicy(profile.Id, profile.Name, options.MaxSlots, options.MaxDownloadSlots, options.MaxUploadSlots, options.Priority));
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5)); await using var session = new FtpRemoteSession(); await session.ConnectAsync(ApplyGlobalProxy(profile), timeout.Token);
         var queued = 0;
+        var downloadFiles = new List<(RemoteEntry Entry, string Destination)>();
         async Task QueueDirectory(string sourceDirectory, string destinationDirectory)
         {
-            Directory.CreateDirectory(destinationDirectory);
-            foreach (var child in await session.ListAsync(sourceDirectory, timeout.Token))
+            var children = await session.ListAsync(sourceDirectory, timeout.Token);
+            var nuke = NukeDetector.DetectDirectory(RemoteLeaf(sourceDirectory), children);
+            if (nuke.IsNuked)
+                throw new InvalidOperationException($"Nuke detection blocked automated download: {sourceDirectory} ({nuke.Display}).");
+            foreach (var child in children)
             {
                 if (child.Name is "." or ".." || ShouldSkip(child.Name)) continue;
                 var destination = Path.Combine(destinationDirectory, child.Name);
                 if (child.IsDirectory) { if (request.Recursive) await QueueDirectory(child.FullPath, destination); }
-                else { Schedule(AddQueue(child.Name, child.FullPath, destination, TransferDirection.ApiDownload, child.Size ?? 0, profile.Id)); queued++; }
+                else downloadFiles.Add((child, destination));
             }
         }
         var parent = RemoteParent(remote); var name = Path.GetFileName(remote.TrimEnd('/'));
@@ -1580,7 +1639,18 @@ public partial class MainWindow : Window
         if (remote == "/") await QueueDirectory(remote, localRoot);
         else if (selected is null) throw new FileNotFoundException($"{remote} was not found on {request.Site}.");
         else if (selected.IsDirectory) await QueueDirectory(selected.FullPath, Path.Combine(localRoot, selected.Name));
-        else { Schedule(AddQueue(selected.Name, selected.FullPath, Path.Combine(localRoot, selected.Name), TransferDirection.ApiDownload, selected.Size ?? 0, profile.Id)); queued++; }
+        else
+        {
+            var nuke = NukeDetector.DetectName(selected.Name);
+            if (nuke.IsNuked) throw new InvalidOperationException($"Nuke detection blocked automated download: {selected.FullPath} ({nuke.Display}).");
+            downloadFiles.Add((selected, Path.Combine(localRoot, selected.Name)));
+        }
+        foreach (var file in downloadFiles)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file.Destination)!);
+            Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, TransferDirection.ApiDownload, file.Entry.Size ?? 0, profile.Id));
+            queued++;
+        }
         LogText.AppendText($"{Environment.NewLine}API queued {queued} download(s) from {profile.Name}: {remote}"); LogText.ScrollToEnd();
         return new { site = profile.Name, description = profile.Description, remote_path = remote, local_path = localRoot, queued, status = "QUEUED" };
     });
@@ -1619,8 +1689,10 @@ public partial class MainWindow : Window
             entry.SpeedBytesPerSecond > 0 ? $"{FormatSize(entry.SpeedBytesPerSecond)}/s" : "—", done, entry.State, progressPercent);
     }).ToList();
 
-    private sealed record LocalEntryView(string Name, string Size, string Modified, string Attributes, string FullPath, bool IsDirectory);
-    private sealed record RemoteEntryView(string Name, string DisplaySize, string DisplayModified, string Attributes, string FullPath, bool IsDirectory);
+    private static string RemoteLeaf(string path) => path.TrimEnd('/').Split('/').LastOrDefault() ?? path;
+
+    private sealed record LocalEntryView(string Name, string Size, string Modified, string Attributes, string Status, bool IsNuked, string FullPath, bool IsDirectory);
+    private sealed record RemoteEntryView(string Name, string DisplaySize, string DisplayModified, string Attributes, string Status, bool IsNuked, string FullPath, bool IsDirectory);
 
     private enum TransferDirection { Download, Upload, UploadToLeft, DownloadFromLeft, RelayLeftToRight, RelayRightToLeft, ApiDownload, ApiFxp }
     private sealed record QuickSiteChoice(string Label, ConnectionProfile? Profile)

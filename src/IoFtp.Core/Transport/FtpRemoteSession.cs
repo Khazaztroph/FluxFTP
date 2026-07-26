@@ -24,6 +24,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     public int ConnectedPort { get; private set; }
     public IReadOnlySet<string> Capabilities { get; private set; } = new HashSet<string>();
     public string LastFxpNegotiation { get; private set; } = "None";
+    public FxpProtectionMode FxpProtection => _profile?.EffectiveOptions.FxpProtection ?? FxpProtectionMode.AutoSecure;
 
     public async Task ConnectAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
@@ -122,7 +123,29 @@ public sealed class FtpRemoteSession : IRemoteSession
         EnsureConnected(); destination.EnsureConnected();
         if (ReferenceEquals(this, destination)) throw new InvalidOperationException("FXP requires two different sessions.");
 
-        var secureFxp = _profile!.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit;
+        var sourceProfile = _profile!;
+        var destinationProfile = destination._profile!;
+        var clearFxp = sourceProfile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear ||
+            destinationProfile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear;
+        var bothControlChannelsUseTls =
+            sourceProfile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit &&
+            destinationProfile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit;
+        if (!clearFxp && !bothControlChannelsUseTls)
+            throw new NotSupportedException("Auto FXP requires TLS on both sites. Select Clear FXP explicitly on a site to permit unencrypted server-to-server data.");
+        var secureFxp = !clearFxp;
+        if (clearFxp)
+        {
+            if (sourceProfile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit)
+            {
+                EnsureSuccess(await CommandAsync("PROT C", cancellationToken), 200);
+                _protectData = false;
+            }
+            if (destinationProfile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit)
+            {
+                EnsureSuccess(await destination.CommandAsync("PROT C", cancellationToken), 200);
+                destination._protectData = false;
+            }
+        }
         var usedCpsv = false;
         await PrepareDataCommandAsync($"RETR {sourcePath}", cancellationToken);
         await destination.PrepareDataCommandAsync($"STOR {destinationPath}", cancellationToken);

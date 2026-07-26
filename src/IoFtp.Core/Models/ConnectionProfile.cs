@@ -31,6 +31,7 @@ public enum DirectoryListingMode
 }
 
 public enum ProxyType { None, Socks4, Socks5, HttpConnect }
+public enum FxpProtectionMode { AutoSecure, Clear }
 
 public sealed record ProxyConfiguration(ProxyType Type = ProxyType.None, string Host = "", int Port = 0,
     string Username = "", string Password = "", bool ProxyDns = true, bool UseForData = true);
@@ -53,7 +54,8 @@ public sealed record SiteOptions(
     bool NeedsPret = false,
     bool CeprSupported = false,
     bool UseXdupe = false,
-    string Affils = "");
+    string Affils = "",
+    FxpProtectionMode FxpProtection = FxpProtectionMode.AutoSecure);
 
 public sealed record ConnectionProfile(
     Guid Id,
