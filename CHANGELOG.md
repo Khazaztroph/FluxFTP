@@ -2,6 +2,19 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.13 — 2026-07-26
+
+### Added
+
+- RaceTrade-compatible REST spreadjob endpoints for starting and monitoring races.
+- RaceTrade/cbftp aliases for site settings including PRET, CEPR, XDUPE, binary mode and named priorities.
+- Spreadjob tracking tied to the underlying FluxFTP FXP queue.
+- Automatic probing of eligible race sites to locate the announced release source.
+
+### Changed
+
+- The `/sites` and `/sections` collection endpoints now return cbftp-compatible name arrays; their detail endpoints continue to expose full configuration objects.
+
 ## 1.0.12 — 2026-07-26
 
 ### Added

@@ -22,6 +22,9 @@ internal sealed class ApiServer : IAsyncDisposable
 {
     private WebApplication? _app;
     private CbftpUdpServer? _udpServer;
+    private readonly Dictionary<string, SpreadJobState> _spreadJobs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _spreadJobsLock = new();
+    private int _nextSpreadJobId;
 
     public async Task StartAsync(GlobalSettings settings, Func<IReadOnlyList<TransferJobInfo>> getJobs,
         Func<ApiTransferRequest, Task<object>> startTransfer, Func<ApiDownloadRequest, Task<object>> startDownload,
@@ -60,7 +63,9 @@ internal sealed class ApiServer : IAsyncDisposable
         });
 
         _app.MapGet("/info", () => Results.Json(new { name = "FluxFTP", version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0", api = "cbftp-compatible", tls = true, udp = true }));
-        _app.MapGet("/sites", () => Results.Json(new ProfileStore().Load().Select(ToApiSite)));
+        // Stock cbftp returns name arrays from the collection endpoints.  RaceTrade
+        // subsequently requests the detail endpoint for every selected name.
+        _app.MapGet("/sites", () => Results.Json(new ProfileStore().Load().Select(site => site.Name)));
         _app.MapGet("/sites/{name}", (string name) => FindSite(name) is { } site ? Results.Json(ToApiSite(site)) : Results.NotFound(new { error = "Site not found" }));
         _app.MapPost("/sites", async (HttpContext context) =>
         {
@@ -106,7 +111,7 @@ internal sealed class ApiServer : IAsyncDisposable
             if (removed == 0) return Results.NotFound(new { error = "Site not found" });
             new ProfileStore().Save(profiles); return Results.Ok(new { deleted = name });
         });
-        _app.MapGet("/sections", () => Results.Json(new SectionStore().Load().Select(ToApiSection)));
+        _app.MapGet("/sections", () => Results.Json(new SectionStore().Load().Select(section => section.Name)));
         _app.MapGet("/sections/{name}", (string name) =>
         {
             var section = FindSection(name); return section is null ? Results.NotFound(new { error = "Section not found" }) : Results.Json(ToApiSection(section));
@@ -213,12 +218,60 @@ internal sealed class ApiServer : IAsyncDisposable
             return Results.Text(json, "application/json");
         });
         _app.MapGet("/transferjobs", () => Results.Json(getJobs()));
-        _app.MapGet("/spreadjobs", (string? status) => Results.Json(getJobs()
-            .Where(job => job.Type.Equals("FXP", StringComparison.OrdinalIgnoreCase) &&
-                (string.IsNullOrWhiteSpace(status) || job.State.Equals(status, StringComparison.OrdinalIgnoreCase) ||
-                 status.Equals("RUNNING", StringComparison.OrdinalIgnoreCase) && job.State is "Queued" or "Transferring"))
-            .Select(job => new { name = job.Name, status = job.State.Equals("Transferring", StringComparison.OrdinalIgnoreCase) ? "RUNNING" : job.State.ToUpperInvariant(),
-                queued = job.Queued, started = job.Started, route = job.Route, speed = job.Speed, done = job.Done })));
+        _app.MapGet("/spreadjobs", (string? status) =>
+        {
+            var jobs = SnapshotSpreadJobs(getJobs);
+            return Results.Json(jobs.Where(job => string.IsNullOrWhiteSpace(status) ||
+                job.Status.Equals(status, StringComparison.OrdinalIgnoreCase)));
+        });
+        _app.MapGet("/spreadjobs/{name}", (string name) =>
+        {
+            var job = SnapshotSpreadJobs(getJobs).FirstOrDefault(item =>
+                item.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            return job is null ? Results.NotFound(new { error = "Spreadjob not found" }) : Results.Json(job);
+        });
+        _app.MapPost("/spreadjobs", async (SpreadJobRequest request) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Section) || string.IsNullOrWhiteSpace(request.Name) ||
+                request.Sites is not { Count: >= 2 })
+                return Results.BadRequest(new { error = "section, name and at least two sites are required" });
+
+            var sites = request.Sites.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var transferIds = new List<Guid>();
+            var errors = new List<string>();
+            foreach (var target in sites)
+            {
+                var sources = sites.Where(site => !site.Equals(target, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(site => request.SitesDlonly?.Contains(site, StringComparer.OrdinalIgnoreCase) == true)
+                    .ToList();
+                foreach (var source in sources)
+                {
+                    try
+                    {
+                        var result = await startTransfer(new(source, null, request.Section, target, null, request.Section, request.Name));
+                        if (result is ApiTransferStartResult started) transferIds.AddRange(started.JobIds);
+                        break;
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        // During a race only the announcing site may have the release.
+                        // Try every permitted peer before giving up on this target.
+                    }
+                    catch (Exception exception)
+                    {
+                        errors.Add($"{source} -> {target}: {exception.Message}");
+                    }
+                }
+            }
+            if (transferIds.Count == 0)
+                return Results.BadRequest(new { error = "No source site contains the release", details = errors });
+
+            var state = new SpreadJobState(
+                Interlocked.Increment(ref _nextSpreadJobId), request.Name, request.Section,
+                sites, transferIds, DateTimeOffset.UtcNow);
+            lock (_spreadJobsLock) _spreadJobs[request.Name] = state;
+            return Results.Json(new { id = state.Id, state = "STARTED", name = state.Name, sites = state.Sites });
+        });
         _app.MapPost("/transferjobs", async (ApiTransferRequest request) => Results.Json(await startTransfer(request)));
         _app.MapPost("/downloads", async (ApiDownloadRequest request) => Results.Json(await startDownload(request)));
         _app.MapPost("/transferjobs/{id:guid}/abort", (Guid id) => { removeJob(id); return Results.Ok(new { aborted = id }); });
@@ -273,6 +326,28 @@ internal sealed class ApiServer : IAsyncDisposable
         }
     }
 
+    private IReadOnlyList<SpreadJobResponse> SnapshotSpreadJobs(Func<IReadOnlyList<TransferJobInfo>> getJobs)
+    {
+        List<SpreadJobState> states;
+        lock (_spreadJobsLock) states = _spreadJobs.Values.ToList();
+        var transfers = getJobs().ToDictionary(job => job.Id);
+        return states.Select(state =>
+        {
+            var children = state.TransferIds.Where(transfers.ContainsKey).Select(id => transfers[id]).ToList();
+            var status = children.Count == 0 || children.All(job => job.State.Equals("Completed", StringComparison.OrdinalIgnoreCase))
+                ? "DONE"
+                : children.Any(job => job.State.Equals("Failed", StringComparison.OrdinalIgnoreCase))
+                    ? "FAILED"
+                    : children.Any(job => job.State.Equals("Paused", StringComparison.OrdinalIgnoreCase))
+                        ? "ABORTED"
+                        : "RUNNING";
+            var incomplete = status == "DONE" ? Array.Empty<string>() : state.Sites.Skip(1).ToArray();
+            var elapsed = Math.Max(0, (long)(DateTimeOffset.UtcNow - state.CreatedAt).TotalSeconds);
+            return new SpreadJobResponse(state.Id, state.Name, state.Section, status, state.Sites,
+                incomplete, 0, elapsed);
+        }).ToList();
+    }
+
     private static ConnectionProfile? FindSite(string name) => new ProfileStore().Load().FirstOrDefault(site => site.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
     private static SectionDefinition? FindSection(string name) => new SectionStore().Load().FirstOrDefault(section => section.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
     private static string? SitePath(SectionDefinition section, string site) => section.SitePaths.FirstOrDefault(pair => pair.Key.Equals(site, StringComparison.OrdinalIgnoreCase)).Value;
@@ -287,11 +362,14 @@ internal sealed class ApiServer : IAsyncDisposable
         base_path = profile.EffectiveOptions.BasePath, tls_mode = profile.Protocol == TransferProtocol.FtpsImplicit ? "IMPLICIT" : profile.Protocol == TransferProtocol.FtpsExplicit ? "AUTH_TLS" : "NONE",
         list_command = profile.ListingMode switch { DirectoryListingMode.Auto => "AUTO", DirectoryListingMode.ListOnly => "LIST", _ => "STAT_L" }, max_logins = profile.EffectiveOptions.MaxSlots,
         max_sim_up = profile.EffectiveOptions.MaxUploadSlots, max_sim_down = profile.EffectiveOptions.MaxDownloadSlots,
-        priority = profile.EffectiveOptions.Priority, needs_pret = profile.EffectiveOptions.NeedsPret,
-        cepr_supported = profile.EffectiveOptions.CeprSupported, use_xdupe = profile.EffectiveOptions.UseXdupe,
+        priority = FormatPriority(profile.EffectiveOptions.Priority), needs_pret = profile.EffectiveOptions.NeedsPret,
+        pret = profile.EffectiveOptions.NeedsPret, cepr_supported = profile.EffectiveOptions.CeprSupported,
+        cepr = profile.EffectiveOptions.CeprSupported, use_xdupe = profile.EffectiveOptions.UseXdupe,
+        xdupe = profile.EffectiveOptions.UseXdupe, disabled = false,
         fxp_protection = profile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear ? "CLEAR" : "AUTO",
         except_source_sites = SplitList(profile.EffectiveOptions.BlockTransfersFrom), except_target_sites = SplitList(profile.EffectiveOptions.BlockTransfersTo),
         affils = SplitList(profile.EffectiveOptions.Affils), force_binary = profile.EffectiveOptions.ForceBinaryMode,
+        force_binary_mode = profile.EffectiveOptions.ForceBinaryMode,
         sections = new SectionStore().Load().Select(section => new { name = section.Name, path = SitePath(section, profile.Name) }).Where(section => section.path is not null) };
     private static ConnectionProfile CreateProfile(SiteRequest request)
     {
@@ -299,10 +377,12 @@ internal sealed class ApiServer : IAsyncDisposable
         if (!SiteEndpoint.TryParse(request.Addresses![0], defaultPort, out var primary)) throw new ArgumentException("Invalid primary site address.");
         var alternates = request.Addresses.Skip(1).Select(value => SiteEndpoint.TryParse(value, defaultPort, out var endpoint) ? endpoint : throw new ArgumentException($"Invalid site address: {value}"));
         var options = new SiteOptions(request.MaxLogins ?? 3, request.MaxSimUp ?? 3, request.MaxSimDown ?? 2,
-            request.Priority ?? 0, BasePath: request.BasePath ?? "/", NeedsPret: request.NeedsPret ?? false, CeprSupported: request.CeprSupported ?? false,
-            UseXdupe: request.UseXdupe ?? false, BlockTransfersFrom: string.Join(' ', request.ExceptSourceSites ?? []),
+            ParsePriority(request.Priority, 0), BasePath: request.BasePath ?? "/", NeedsPret: request.NeedsPret ?? request.Pret ?? false,
+            CeprSupported: request.CeprSupported ?? request.Cepr ?? false,
+            UseXdupe: request.UseXdupe ?? request.Xdupe ?? false, BlockTransfersFrom: string.Join(' ', request.ExceptSourceSites ?? []),
             BlockTransfersTo: string.Join(' ', request.ExceptTargetSites ?? []), ForceBinaryMode: request.ForceBinary ?? true,
             Affils: string.Join(' ', request.Affils ?? []));
+        if (request.ForceBinaryMode is not null) options = options with { ForceBinaryMode = request.ForceBinaryMode.Value };
         options = options with { FxpProtection = ParseFxpProtection(request.FxpProtection) };
         return new(Guid.NewGuid(), request.Name!, primary.Host, primary.Port, request.User ?? "anonymous", protocol,
             request.Password ?? "", ListingMode: ParseListingMode(request.ListCommand),
@@ -319,14 +399,15 @@ internal sealed class ApiServer : IAsyncDisposable
         }
         var options = profile.EffectiveOptions with { BasePath = request.BasePath ?? profile.EffectiveOptions.BasePath, MaxSlots = request.MaxLogins ?? profile.EffectiveOptions.MaxSlots,
             MaxUploadSlots = request.MaxSimUp ?? profile.EffectiveOptions.MaxUploadSlots, MaxDownloadSlots = request.MaxSimDown ?? profile.EffectiveOptions.MaxDownloadSlots,
-            Priority = request.Priority ?? profile.EffectiveOptions.Priority, NeedsPret = request.NeedsPret ?? profile.EffectiveOptions.NeedsPret,
-            CeprSupported = request.CeprSupported ?? profile.EffectiveOptions.CeprSupported,
-            UseXdupe = request.UseXdupe ?? profile.EffectiveOptions.UseXdupe,
+            Priority = ParsePriority(request.Priority, profile.EffectiveOptions.Priority),
+            NeedsPret = request.NeedsPret ?? request.Pret ?? profile.EffectiveOptions.NeedsPret,
+            CeprSupported = request.CeprSupported ?? request.Cepr ?? profile.EffectiveOptions.CeprSupported,
+            UseXdupe = request.UseXdupe ?? request.Xdupe ?? profile.EffectiveOptions.UseXdupe,
             FxpProtection = request.FxpProtection is null ? profile.EffectiveOptions.FxpProtection : ParseFxpProtection(request.FxpProtection),
             BlockTransfersFrom = request.ExceptSourceSites is null ? profile.EffectiveOptions.BlockTransfersFrom : string.Join(' ', request.ExceptSourceSites),
             BlockTransfersTo = request.ExceptTargetSites is null ? profile.EffectiveOptions.BlockTransfersTo : string.Join(' ', request.ExceptTargetSites),
             Affils = request.Affils is null ? profile.EffectiveOptions.Affils : string.Join(' ', request.Affils),
-            ForceBinaryMode = request.ForceBinary ?? profile.EffectiveOptions.ForceBinaryMode };
+            ForceBinaryMode = request.ForceBinary ?? request.ForceBinaryMode ?? profile.EffectiveOptions.ForceBinaryMode };
         return profile with { Name = request.Name ?? profile.Name, Host = host, Port = port, AlternateAddresses = alternateAddresses, Username = request.User ?? profile.Username,
             Password = request.Password ?? profile.Password, Protocol = request.TlsMode is null ? profile.Protocol : ParseTls(request.TlsMode),
             ListingMode = request.ListCommand is null ? profile.ListingMode : ParseListingMode(request.ListCommand), Options = options,
@@ -343,6 +424,15 @@ internal sealed class ApiServer : IAsyncDisposable
         "STAT_L" or "STAT-L" => DirectoryListingMode.StatThenList,
         _ => DirectoryListingMode.Auto
     };
+    private static int ParsePriority(JsonElement? value, int fallback)
+    {
+        if (value is not { } element) return fallback;
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var number)) return number;
+        if (element.ValueKind != JsonValueKind.String) return fallback;
+        return element.GetString()?.ToUpperInvariant() switch { "LOW" => -10, "HIGH" => 10, "NORMAL" => 0,
+            var text when int.TryParse(text, out var parsed) => parsed, _ => fallback };
+    }
+    private static string FormatPriority(int priority) => priority switch { < 0 => "LOW", > 0 => "HIGH", _ => "NORMAL" };
 
     private static string[] SplitList(string value) => value.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -424,15 +514,19 @@ internal sealed class ApiServer : IAsyncDisposable
         [property: JsonPropertyName("list_command")] string? ListCommand = null,
         [property: JsonPropertyName("max_logins")] int? MaxLogins = null,
         [property: JsonPropertyName("max_sim_up")] int? MaxSimUp = null,
-        [property: JsonPropertyName("max_sim_down")] int? MaxSimDown = null, int? Priority = null,
+        [property: JsonPropertyName("max_sim_down")] int? MaxSimDown = null, JsonElement? Priority = null,
         [property: JsonPropertyName("needs_pret")] bool? NeedsPret = null,
+        bool? Pret = null,
         [property: JsonPropertyName("cepr_supported")] bool? CeprSupported = null,
+        bool? Cepr = null,
         [property: JsonPropertyName("use_xdupe")] bool? UseXdupe = null,
+        bool? Xdupe = null,
         [property: JsonPropertyName("fxp_protection")] string? FxpProtection = null,
         [property: JsonPropertyName("except_source_sites")] List<string>? ExceptSourceSites = null,
         [property: JsonPropertyName("except_target_sites")] List<string>? ExceptTargetSites = null,
         List<string>? Affils = null,
         [property: JsonPropertyName("force_binary")] bool? ForceBinary = null,
+        [property: JsonPropertyName("force_binary_mode")] bool? ForceBinaryMode = null,
         List<SiteSectionRequest>? Sections = null);
 
     private sealed record SiteSectionRequest(string Name = "", string Path = "");
@@ -440,6 +534,17 @@ internal sealed class ApiServer : IAsyncDisposable
         [property: JsonPropertyName("validation_mode")] string? ValidationMode = null,
         [property: JsonPropertyName("allow_patterns")] List<string>? AllowPatterns = null,
         [property: JsonPropertyName("deny_patterns")] List<string>? DenyPatterns = null);
+
+    private sealed record SpreadJobRequest(string? Section = null, string? Name = null,
+        List<string>? Sites = null, string? Profile = null,
+        [property: JsonPropertyName("sites_dlonly")] List<string>? SitesDlonly = null);
+    private sealed record SpreadJobState(int Id, string Name, string Section,
+        IReadOnlyList<string> Sites, IReadOnlyList<Guid> TransferIds, DateTimeOffset CreatedAt);
+    private sealed record SpreadJobResponse(int Id, string Name, string Section, string Status,
+        IReadOnlyList<string> Sites,
+        [property: JsonPropertyName("sites_incomplete")] IReadOnlyList<string> SitesIncomplete,
+        [property: JsonPropertyName("size_estimated_bytes")] long SizeEstimatedBytes,
+        [property: JsonPropertyName("time_spent_seconds")] long TimeSpentSeconds);
 }
 
 internal sealed record RawRequest(string? Command = null, string[]? Sites = null,
@@ -467,3 +572,11 @@ internal sealed record ApiDownloadRequest(
     [property: JsonPropertyName("remote_section")] string? RemoteSection = null,
     [property: JsonPropertyName("local_path")] string? LocalPath = null,
     bool Recursive = true);
+
+internal sealed record ApiTransferStartResult(
+    string Name,
+    string Status,
+    int Files,
+    string Source,
+    string Target,
+    [property: JsonPropertyName("job_ids")] IReadOnlyList<Guid> JobIds);
