@@ -2,6 +2,13 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.14 — 2026-07-26
+
+### Fixed
+
+- Transfer slots now reload the latest Site Manager profile before every file, so switching a connected FTP/FTPS site from Auto to Clear FXP takes effect without reconnecting.
+- Clarified that Clear mode supports fully plain FTP control connections and PASV/PORT FXP without data TLS.
+
 ## 1.0.13 — 2026-07-26
 
 ### Added
