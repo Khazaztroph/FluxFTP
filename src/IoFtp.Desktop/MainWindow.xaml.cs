@@ -849,10 +849,19 @@ public partial class MainWindow : Window
         var needsLeft = entry.Direction is TransferDirection.UploadToLeft or TransferDirection.DownloadFromLeft or TransferDirection.RelayLeftToRight or TransferDirection.RelayRightToLeft;
         var needsRight = entry.Direction is TransferDirection.Download or TransferDirection.Upload or TransferDirection.RelayLeftToRight or TransferDirection.RelayRightToLeft;
         var profiles = new ProfileStore().Load();
+        // Site Options can be changed while a pane remains connected. Worker
+        // slots must use the persisted profile so Clear FXP takes effect on the
+        // next file without requiring a disconnect or application restart.
+        var leftProfile = _leftProfile is null ? null :
+            profiles.FirstOrDefault(profile => profile.Id == _leftProfile.Id) ?? _leftProfile;
+        var rightProfile = _rightProfile is null ? null :
+            profiles.FirstOrDefault(profile => profile.Id == _rightProfile.Id) ?? _rightProfile;
+        if (leftProfile is not null) leftProfile = ApplyGlobalProxy(leftProfile);
+        if (rightProfile is not null) rightProfile = ApplyGlobalProxy(rightProfile);
         var apiProfile = entry.Direction == TransferDirection.ApiDownload ? profiles.FirstOrDefault(profile => profile.Id == entry.SourceProfileId) : null;
         var apiFxpSource = entry.Direction == TransferDirection.ApiFxp ? profiles.FirstOrDefault(profile => profile.Id == entry.SourceProfileId) : null;
         var apiFxpDestination = entry.Direction == TransferDirection.ApiFxp ? profiles.FirstOrDefault(profile => profile.Id == entry.DestinationProfileId) : null;
-        if ((needsLeft && _leftProfile is null) || (needsRight && _rightProfile is null) || (entry.Direction == TransferDirection.ApiDownload && apiProfile is null) ||
+        if ((needsLeft && leftProfile is null) || (needsRight && rightProfile is null) || (entry.Direction == TransferDirection.ApiDownload && apiProfile is null) ||
             (entry.Direction == TransferDirection.ApiFxp && (apiFxpSource is null || apiFxpDestination is null)))
             throw new InvalidOperationException("A required site is not connected.");
         FtpRemoteSession? leftWorker = null; FtpRemoteSession? rightWorker = null;
@@ -864,8 +873,8 @@ public partial class MainWindow : Window
             entry.StartedAt ??= DateTimeOffset.Now;
             SaveQueue();
             await RunScriptsAsync("BeforeTransfer", TransferScriptVariables(entry, "Starting"), false);
-            if (needsLeft) leftWorker = await CreateWorkerAsync(_leftProfile!, cancellationToken);
-            if (needsRight) rightWorker = await CreateWorkerAsync(_rightProfile!, cancellationToken);
+            if (needsLeft) leftWorker = await CreateWorkerAsync(leftProfile!, cancellationToken);
+            if (needsRight) rightWorker = await CreateWorkerAsync(rightProfile!, cancellationToken);
             if (apiProfile is not null) apiWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiProfile), cancellationToken);
             if (apiFxpSource is not null) apiFxpSourceWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpSource), cancellationToken);
             if (apiFxpDestination is not null) apiFxpDestinationWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpDestination), cancellationToken);
@@ -913,7 +922,7 @@ public partial class MainWindow : Window
                         LogText.AppendText($"{Environment.NewLine}Attempting direct {(clearFxp ? "clear" : "secure")} FXP: {entry.Name}");
                         var fxpStartedAt = DateTime.UtcNow;
                         using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        var destinationProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestination! : entry.Direction == TransferDirection.RelayLeftToRight ? _rightProfile! : _leftProfile!;
+                        var destinationProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestination! : entry.Direction == TransferDirection.RelayLeftToRight ? rightProfile! : leftProfile!;
                         var monitor = MonitorFxpAsync(destinationProfile, entry, monitorCancellation.Token);
                         try { await sourceSession.FxpToAsync(destinationSession, entry.Source, entry.Destination, cancellationToken); }
                         finally
@@ -953,8 +962,8 @@ public partial class MainWindow : Window
                         {
                             if (leftWorker is not null) await leftWorker.DisposeAsync();
                             if (rightWorker is not null) await rightWorker.DisposeAsync();
-                            leftWorker = await CreateWorkerAsync(_leftProfile!, cancellationToken);
-                            rightWorker = await CreateWorkerAsync(_rightProfile!, cancellationToken);
+                            leftWorker = await CreateWorkerAsync(leftProfile!, cancellationToken);
+                            rightWorker = await CreateWorkerAsync(rightProfile!, cancellationToken);
                             sourceSession = entry.Direction == TransferDirection.RelayLeftToRight ? leftWorker : rightWorker;
                             destinationSession = entry.Direction == TransferDirection.RelayLeftToRight ? rightWorker : leftWorker;
                         }

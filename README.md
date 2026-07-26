@@ -48,6 +48,9 @@ Direct FXP protection is configurable per site. The default **Auto** mode always
 requires TLS-protected server-to-server data through CPSV/SSCN. **Clear** must be
 selected explicitly for a site before FluxFTP will use unencrypted PASV/PORT FXP;
 the FTPS control logins remain encrypted.
+Clear also supports fully plain `None (FTP)` sites with no TLS on either the
+control or FXP data connection. Updated Site Options are reloaded for each new
+transfer slot, so changing Auto to Clear does not require reconnecting the panes.
 The FTPRush import guide can import sites and bookmarks independently, with
 Replace or Skip handling for existing entries. Global local bookmarks and
 site-specific remote bookmarks are available from selectors in both panes.

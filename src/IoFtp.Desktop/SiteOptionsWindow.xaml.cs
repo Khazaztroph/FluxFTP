@@ -23,7 +23,7 @@ public partial class SiteOptionsWindow : Window
         FxpProtectionBox.ItemsSource = new[]
         {
             new FxpProtectionChoice(FxpProtectionMode.AutoSecure, "Auto — secure FXP (TLS)"),
-            new FxpProtectionChoice(FxpProtectionMode.Clear, "Clear — FXP without data TLS")
+            new FxpProtectionChoice(FxpProtectionMode.Clear, "Clear / plain FTP — no FXP data TLS")
         };
         FxpProtectionBox.DisplayMemberPath = nameof(FxpProtectionChoice.Label);
         FxpProtectionBox.SelectedItem = ((FxpProtectionChoice[])FxpProtectionBox.ItemsSource)
