@@ -7,18 +7,31 @@ using IoFtp.Core.Models;
 namespace IoFtp.Desktop.Services;
 
 internal sealed record FtpRushImportedSite(ConnectionProfile Profile, string GroupPath);
+internal sealed record FtpRushImportPackage(IReadOnlyList<FtpRushImportedSite> Sites, IReadOnlyList<SiteBookmark> Bookmarks);
 
 internal static class FtpRushSiteImporter
 {
     public static IReadOnlyList<FtpRushImportedSite> Import(string path)
+        => ImportPackage(path).Sites;
+
+    public static FtpRushImportPackage ImportPackage(string path)
     {
-        if (Path.GetExtension(path).Equals(".xml", StringComparison.OrdinalIgnoreCase)) return ImportLegacyXml(path);
+        if (Path.GetExtension(path).Equals(".xml", StringComparison.OrdinalIgnoreCase))
+            return new(ImportLegacyXml(path), []);
         using var document = JsonDocument.Parse(File.ReadAllText(path));
         if (!document.RootElement.TryGetProperty("RootItem", out var root))
             throw new InvalidDataException("The file is not a supported FTPRush site.json file.");
         var result = new List<FtpRushImportedSite>();
-        Walk(root, "", result);
-        return result;
+        var bookmarks = new List<SiteBookmark>();
+        Walk(root, "", result, bookmarks);
+        var settingsPath = Path.Combine(Path.GetDirectoryName(path)!, "core_setting.json");
+        if (File.Exists(settingsPath))
+        {
+            using var settings = JsonDocument.Parse(File.ReadAllText(settingsPath));
+            ReadBookmarks(settings.RootElement, "", bookmarks);
+        }
+        return new(result, bookmarks.DistinctBy(item => $"{item.SiteName}\0{item.Name}\0{item.Path}",
+            StringComparer.OrdinalIgnoreCase).ToList());
     }
 
     private static IReadOnlyList<FtpRushImportedSite> ImportLegacyXml(string path)
@@ -73,7 +86,7 @@ internal static class FtpRushSiteImporter
         name.Equals("REMOTEPATH", StringComparison.OrdinalIgnoreCase) || name.Equals("REMOTE_PATH", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("PATH", StringComparison.OrdinalIgnoreCase) || name.Equals("DEFAULTREMOTEPATH", StringComparison.OrdinalIgnoreCase);
 
-    private static void Walk(JsonElement node, string parentPath, List<FtpRushImportedSite> result)
+    private static void Walk(JsonElement node, string parentPath, List<FtpRushImportedSite> result, List<SiteBookmark> bookmarks)
     {
         var nodeName = Text(node, "Name");
         var groupPath = string.IsNullOrWhiteSpace(nodeName) ? parentPath : string.IsNullOrWhiteSpace(parentPath) ? nodeName : $"{parentPath} / {nodeName}";
@@ -105,10 +118,22 @@ internal static class FtpRushSiteImporter
                 var profile = new ConnectionProfile(Guid.NewGuid(), name, host, port, Text(server, "Username"), protocol.Value,
                     password, false, DirectoryListingMode.StatThenList, new SiteOptions(BasePath: remotePath));
                 result.Add(new(profile, parentPath));
+                ReadBookmarks(server, profile.Name, bookmarks);
             }
         }
         if (node.TryGetProperty("Children", out var children) && children.ValueKind == JsonValueKind.Array)
-            foreach (var child in children.EnumerateArray()) Walk(child, groupPath, result);
+            foreach (var child in children.EnumerateArray()) Walk(child, groupPath, result, bookmarks);
+    }
+
+    private static void ReadBookmarks(JsonElement element, string siteName, List<SiteBookmark> result)
+    {
+        if (!element.TryGetProperty("BookMarks", out var bookmarks) || bookmarks.ValueKind != JsonValueKind.Array) return;
+        foreach (var bookmark in bookmarks.EnumerateArray())
+        {
+            var name = Text(bookmark, "Name").Trim();
+            var path = Text(bookmark, "Path").Trim().Replace('\\', '/');
+            if (name.Length > 0 && path.Length > 0) result.Add(new(name, path, siteName));
+        }
     }
 
     private static string Text(JsonElement element, string name) =>

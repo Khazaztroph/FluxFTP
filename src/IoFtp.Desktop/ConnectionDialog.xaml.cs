@@ -35,7 +35,8 @@ public partial class ConnectionDialog : Window
             ProtocolBox.SelectedItem = ((ProtocolChoice[])ProtocolBox.ItemsSource).First(choice => choice.Protocol == profile.Protocol);
             HostBox.Text = string.Join(' ', profile.EffectiveAddresses.Select(address => address.ToString()));
             PortBox.Text = profile.Port.ToString();
-            UsernameBox.Text = profile.Username;
+            GhostLoginBox.IsChecked = profile.Username.StartsWith('/');
+            UsernameBox.Text = profile.Username.TrimStart('/');
             PasswordBox.Password = profile.Password;
             RemotePathBox.Text = profile.EffectiveOptions.BasePath;
             AllowInvalidCertificateBox.IsChecked = profile.AllowInvalidCertificate;
@@ -92,7 +93,11 @@ public partial class ConnectionDialog : Window
         if (!remotePath.StartsWith('/')) remotePath = "/" + remotePath;
         var options = (_options ?? new SiteOptions()) with { BasePath = remotePath };
         var primary = addresses[0];
-        Profile = new ConnectionProfile(_id, name, primary.Host, primary.Port, UsernameBox.Text.Trim(), ((ProtocolChoice)ProtocolBox.SelectedItem).Protocol,
+        var username = UsernameBox.Text.Trim();
+        var killGhost = GhostLoginBox.IsChecked == true || username.StartsWith('/');
+        username = username.TrimStart('/');
+        if (killGhost && username.Length > 0) username = "/" + username;
+        Profile = new ConnectionProfile(_id, name, primary.Host, primary.Port, username, ((ProtocolChoice)ProtocolBox.SelectedItem).Protocol,
             PasswordBox.Password, AllowInvalidCertificateBox.IsChecked == true, listingMode, options,
             AlternateAddresses: string.Join(' ', addresses.Skip(1).Select(address => address.ToString())), Description: DescriptionBox.Text.Trim());
         DialogResult = true;

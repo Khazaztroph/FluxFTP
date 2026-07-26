@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     private ListSortDirection _rightSortDirection = ListSortDirection.Ascending;
     private Point _dragStart;
     private bool _reloadingQuickSites;
+    private bool _reloadingBookmarks;
     private readonly SemaphoreSlim _leftNavigationGate = new(1, 1);
     private readonly SemaphoreSlim _rightNavigationGate = new(1, 1);
     private readonly System.Windows.Forms.NotifyIcon _trayIcon = new();
@@ -172,6 +173,7 @@ public partial class MainWindow : Window
             using (var listTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20)))
                 entries = await session.ListAsync(options.BasePath, listTimeout.Token);
             if (left) ShowLeftRemoteEntries(options.BasePath, entries); else ShowRemoteEntries(options.BasePath, entries);
+            ReloadBookmarks(left);
             ConnectionStatus.Text = $"Connected: {session.ConnectedHost}:{session.ConnectedPort}";
             LogText.AppendText($"{Environment.NewLine}Connected. {entries.Count} remote entries received.");
             LogText.AppendText($"{Environment.NewLine}Capabilities: {string.Join(", ", session.Capabilities.OrderBy(value => value))}");
@@ -287,6 +289,7 @@ public partial class MainWindow : Window
             if (_leftRemoteSession?.IsConnected == true) _ = NavigateLeftRemoteAsync(_leftRemoteDirectory);
             else LocalList.ItemsSource = null;
         }
+        ReloadBookmarks(true);
     }
 
     private void RightMode_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -300,7 +303,41 @@ public partial class MainWindow : Window
             if (_remoteSession?.IsConnected == true) _ = NavigateRemoteAsync(_remoteDirectory);
             else RemoteList.ItemsSource = null;
         }
+        ReloadBookmarks(false);
     }
+
+    private void ReloadBookmarks(bool left)
+    {
+        if (!IsLoaded) return;
+        _reloadingBookmarks = true;
+        var remoteMode = left ? LeftMode.SelectedIndex == 1 : RightMode.SelectedIndex == 1;
+        var siteName = left ? _leftProfile?.Name : _rightProfile?.Name;
+        var choices = new List<SiteBookmark> { new("Bookmarks…", "") };
+        choices.AddRange(new BookmarkStore().Load().Where(bookmark => remoteMode
+            ? !string.IsNullOrWhiteSpace(siteName) && bookmark.SiteName.Equals(siteName, StringComparison.OrdinalIgnoreCase)
+            : string.IsNullOrWhiteSpace(bookmark.SiteName)));
+        var combo = left ? LeftBookmarks : RightBookmarks;
+        combo.ItemsSource = choices;
+        combo.SelectedIndex = 0;
+        _reloadingBookmarks = false;
+    }
+
+    private async void LeftBookmarks_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_reloadingBookmarks || LeftBookmarks.SelectedItem is not SiteBookmark { Path.Length: > 0 } bookmark) return;
+        if (LeftMode.SelectedIndex == 0) LoadLocalDirectory(LocalBookmarkPath(bookmark.Path));
+        else await NavigateLeftRemoteAsync(bookmark.Path);
+    }
+
+    private async void RightBookmarks_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_reloadingBookmarks || RightBookmarks.SelectedItem is not SiteBookmark { Path.Length: > 0 } bookmark) return;
+        if (RightMode.SelectedIndex == 0) LoadRightLocalDirectory(LocalBookmarkPath(bookmark.Path));
+        else await NavigateRemoteAsync(bookmark.Path);
+    }
+
+    private static string LocalBookmarkPath(string path) =>
+        Regex.IsMatch(path, @"^/[A-Za-z]:/") ? path[1..].Replace('/', Path.DirectorySeparatorChar) : path.Replace('/', Path.DirectorySeparatorChar);
 
     private void ShowLeftRemoteEntries(string path, IReadOnlyList<RemoteEntry> entries)
     {
@@ -843,10 +880,13 @@ public partial class MainWindow : Window
                 var session = entry.Direction == TransferDirection.ApiDownload ? apiWorker! : entry.Direction == TransferDirection.Download ? rightWorker! : leftWorker!;
                 var partial = entry.Destination + ".ioftp-part";
                 Directory.CreateDirectory(Path.GetDirectoryName(entry.Destination)!);
-                await using var output = new FileStream(partial, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, 64 * 1024, true);
-                output.Seek(0, SeekOrigin.End);
-                entry.BytesTransferred = output.Length;
-                await session.DownloadAsync(entry.Source, output, output.Length, progress, cancellationToken);
+                await using (var output = new FileStream(partial, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, 64 * 1024, true))
+                {
+                    output.Seek(0, SeekOrigin.End);
+                    entry.BytesTransferred = output.Length;
+                    await session.DownloadAsync(entry.Source, output, output.Length, progress, cancellationToken);
+                    await output.FlushAsync(cancellationToken);
+                }
                 File.Move(partial, entry.Destination, true);
             }
             else if (entry.Direction is TransferDirection.Upload or TransferDirection.UploadToLeft)

@@ -7,6 +7,17 @@
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
             <TextBlock x:Name="HeadingText" Text="IMPORT SITES" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"/>
             <TextBlock x:Name="SummaryText" Margin="0,6,0,0" Foreground="{StaticResource MutedTextBrush}"/>
+            <Border x:Name="GuidePanel" Margin="0,12,0,0" Padding="12,9" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="IMPORT GUIDE" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,6"/>
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox x:Name="ImportSitesBox" Content="Import Sites" IsChecked="True" Margin="0,0,20,0"/>
+                        <CheckBox x:Name="ImportBookmarksBox" Content="Import Bookmarks" IsChecked="True" Margin="0,0,28,0"/>
+                        <RadioButton x:Name="ReplaceBox" GroupName="ConflictMode" Content="Replace existing" Margin="0,0,20,0"/>
+                        <RadioButton x:Name="SkipBox" GroupName="ConflictMode" Content="Skip existing" IsChecked="True"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </StackPanel>
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button Content="Cancel" IsCancel="True"/>

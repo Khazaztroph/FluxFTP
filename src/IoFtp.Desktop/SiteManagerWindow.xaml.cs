@@ -93,12 +93,42 @@ public partial class SiteManagerWindow : Window
         if (picker.ShowDialog(this) != true) return;
         try
         {
-            var imported = FtpRushSiteImporter.Import(picker.FileName);
-            var dialog = new FtpRushImportWindow("FTPRush", imported, _profiles) { Owner = this };
+            var imported = FtpRushSiteImporter.ImportPackage(picker.FileName);
+            var dialog = new FtpRushImportWindow("FTPRush", imported.Sites, _profiles, imported.Bookmarks) { Owner = this };
             if (dialog.ShowDialog() != true) return;
-            foreach (var profile in dialog.SelectedProfiles) _profiles.Add(profile);
+            var importedSites = 0;
+            foreach (var profile in dialog.SelectedProfiles)
+            {
+                var index = _profiles.Select((existing, position) => (existing, position))
+                    .Where(item => IsSameSite(item.existing, profile))
+                    .Select(item => item.position).DefaultIfEmpty(-1).First();
+                if (index >= 0)
+                {
+                    if (!dialog.ReplaceExisting) continue;
+                    _profiles[index] = profile with { Id = _profiles[index].Id };
+                }
+                else _profiles.Add(profile);
+                importedSites++;
+            }
+            var bookmarkStore = new BookmarkStore();
+            var bookmarks = bookmarkStore.Load();
+            var importedBookmarks = 0;
+            foreach (var bookmark in dialog.SelectedBookmarks)
+            {
+                var index = bookmarks.FindIndex(existing =>
+                    existing.SiteName.Equals(bookmark.SiteName, StringComparison.OrdinalIgnoreCase) &&
+                    existing.Name.Equals(bookmark.Name, StringComparison.OrdinalIgnoreCase));
+                if (index >= 0)
+                {
+                    if (!dialog.ReplaceExisting) continue;
+                    bookmarks[index] = bookmark;
+                }
+                else bookmarks.Add(bookmark);
+                importedBookmarks++;
+            }
             Save();
-            MessageBox.Show($"Imported {dialog.SelectedProfiles.Count} FTPRush site(s). Passwords are now protected with Windows DPAPI.",
+            bookmarkStore.Save(bookmarks);
+            MessageBox.Show($"Imported {importedSites} FTPRush site(s) and {importedBookmarks} bookmark(s). Passwords are now protected with Windows DPAPI.",
                 "FTPRush Import", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception exception)
@@ -136,4 +166,10 @@ public partial class SiteManagerWindow : Window
     }
 
     private void Save() => _store.Save(_profiles);
+
+    private static bool IsSameSite(ConnectionProfile left, ConnectionProfile right) =>
+        left.Name.Equals(right.Name, StringComparison.OrdinalIgnoreCase) ||
+        left.Host.Equals(right.Host, StringComparison.OrdinalIgnoreCase) &&
+        left.Port == right.Port &&
+        left.Username.Equals(right.Username, StringComparison.OrdinalIgnoreCase);
 }

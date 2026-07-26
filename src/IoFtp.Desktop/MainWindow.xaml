@@ -75,6 +75,8 @@
                     </DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="8,2,8,8">
                         <Button DockPanel.Dock="Right" Content="Up" Click="LocalUp_Click" Margin="5,0,0,0" Padding="10,4"/>
+                        <ComboBox x:Name="LeftBookmarks" DockPanel.Dock="Right" Width="150" Margin="5,0,0,0"
+                                  DisplayMemberPath="Name" SelectionChanged="LeftBookmarks_SelectionChanged" ToolTip="Imported FTPRush bookmarks"/>
                         <TextBox x:Name="LocalPath" Text="/" KeyDown="LocalPath_KeyDown"/>
                     </DockPanel>
                     <ListView x:Name="LocalList" Margin="8,0,8,8" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
@@ -120,6 +122,8 @@
                     </DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="8,2,8,8">
                         <Button DockPanel.Dock="Right" Content="Up" Click="RemoteUp_Click" Margin="5,0,0,0" Padding="10,4"/>
+                        <ComboBox x:Name="RightBookmarks" DockPanel.Dock="Right" Width="150" Margin="5,0,0,0"
+                                  DisplayMemberPath="Name" SelectionChanged="RightBookmarks_SelectionChanged" ToolTip="Imported FTPRush bookmarks"/>
                         <TextBox x:Name="RemotePath" Text="/" KeyDown="RemotePath_KeyDown"/>
                     </DockPanel>
                     <ListView x:Name="RemoteList" Margin="8,0,8,8" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"

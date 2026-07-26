@@ -2,6 +2,21 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.12 — 2026-07-26
+
+### Added
+
+- FTPRush import guide with separate **Import Sites** and **Import Bookmarks** choices.
+- Mutually exclusive **Replace existing** and **Skip existing** conflict handling.
+- Import of global bookmarks from `core_setting.json` and per-site bookmarks from `site.json`.
+- Persistent `FluxFTP-bookmarks.json` storage.
+- Bookmark selectors in both panes for local and site-specific remote navigation.
+- Explicit **Kill ghost login (/username)** option in Connection details for ioFTPD accounts.
+
+### Fixed
+
+- Local downloads now close and flush the `.ioftp-part` stream before the final rename, preventing Windows file-lock failures.
+
 ## 1.0.11 — 2026-07-26
 
 ### Added
