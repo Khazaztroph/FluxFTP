@@ -1612,6 +1612,7 @@ public partial class MainWindow : Window
         var item = (await sourceSession.ListAsync(sourceBase, timeout.Token)).FirstOrDefault(entry => entry.Name.Equals(request.Name, StringComparison.OrdinalIgnoreCase))
             ?? throw new FileNotFoundException($"{request.Name} was not found on {request.SrcSite}.");
         var queued = 0;
+        var jobIds = new List<Guid>();
         var apiFiles = new List<(RemoteEntry Entry, string Destination)>();
         async Task QueueDirectory(string sourceDirectory, string destinationDirectory)
         {
@@ -1636,12 +1637,14 @@ public partial class MainWindow : Window
         }
         foreach (var file in apiFiles)
         {
-            Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, TransferDirection.ApiFxp,
-                file.Entry.Size ?? 0, sourceProfile.Id, destinationProfile.Id));
+            var queuedEntry = AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, TransferDirection.ApiFxp,
+                file.Entry.Size ?? 0, sourceProfile.Id, destinationProfile.Id);
+            jobIds.Add(queuedEntry.Id);
+            Schedule(queuedEntry);
             queued++;
         }
         LogText.AppendText($"{Environment.NewLine}API queued FXP {request.Name}: {request.SrcSite} → {request.DstSite} ({queued} files)"); LogText.ScrollToEnd();
-        return new { name = request.Name, status = "QUEUED", files = queued, source = request.SrcSite, target = request.DstSite };
+        return new ApiTransferStartResult(request.Name, "QUEUED", queued, request.SrcSite, request.DstSite, jobIds);
     });
 
     private async Task<object> StartApiDownloadAsync(ApiDownloadRequest request) => await await Dispatcher.InvokeAsync(async () =>
