@@ -79,7 +79,7 @@
                                   DisplayMemberPath="Name" SelectionChanged="LeftBookmarks_SelectionChanged" ToolTip="Imported FTPRush bookmarks"/>
                         <TextBox x:Name="LocalPath" Text="/" KeyDown="LocalPath_KeyDown"/>
                     </DockPanel>
-                    <ListView x:Name="LocalList" Margin="8,0,8,8" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
+                    <ListView x:Name="LocalList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
                               PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="LocalList_MouseMove"
                               PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True" Drop="LocalList_Drop">
                         <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
@@ -126,7 +126,7 @@
                                   DisplayMemberPath="Name" SelectionChanged="RightBookmarks_SelectionChanged" ToolTip="Imported FTPRush bookmarks"/>
                         <TextBox x:Name="RemotePath" Text="/" KeyDown="RemotePath_KeyDown"/>
                     </DockPanel>
-                    <ListView x:Name="RemoteList" Margin="8,0,8,8" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"
+                    <ListView x:Name="RemoteList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"
                               PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="RemoteList_MouseMove"
                               PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True" Drop="RemoteList_Drop">
                         <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
