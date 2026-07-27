@@ -2,6 +2,14 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.15 — 2026-07-27
+
+### Added
+
+- Multi-selection with Ctrl/Shift in both file panes for batching files and folders.
+- Recursive local-folder uploads, matching the existing recursive download and FXP folder handling.
+- Multi-item support for Transfer, Queue, drag-and-drop and context-menu transfers.
+
 ## 1.0.14 — 2026-07-26
 
 ### Fixed

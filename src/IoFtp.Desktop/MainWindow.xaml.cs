@@ -508,59 +508,74 @@ public partial class MainWindow : Window
 
     private async void Download_Click(object sender, RoutedEventArgs e)
     {
-        if (RemoteList.SelectedItem is not RemoteEntryView entry) return;
-        if (entry.IsDirectory)
+        var entries = RemoteList.SelectedItems.Cast<RemoteEntryView>().ToList();
+        if (entries.Count == 0) return;
+        foreach (var entry in entries)
         {
-            if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 1 && _remoteSession is not null && _leftRemoteSession is not null)
-                await QueueRemoteDirectoryAsync(_remoteSession, _leftRemoteSession, entry.FullPath,
-                    NormalizeRemotePath($"{_leftRemoteDirectory}/{entry.Name}"), TransferDirection.RelayRightToLeft);
-            else if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 0 && _remoteSession is not null)
-                await QueueRemoteToLocalDirectoryAsync(_remoteSession, entry.FullPath,
-                    Path.Combine(_localDirectory, entry.Name), TransferDirection.Download);
-            return;
+            if (entry.IsDirectory)
+            {
+                if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 1 && _remoteSession is not null && _leftRemoteSession is not null)
+                    await QueueRemoteDirectoryAsync(_remoteSession, _leftRemoteSession, entry.FullPath,
+                        NormalizeRemotePath($"{_leftRemoteDirectory}/{entry.Name}"), TransferDirection.RelayRightToLeft);
+                else if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 0 && _remoteSession is not null)
+                    await QueueRemoteToLocalDirectoryAsync(_remoteSession, entry.FullPath,
+                        Path.Combine(_localDirectory, entry.Name), TransferDirection.Download);
+                else if (RightMode.SelectedIndex == 0 && LeftMode.SelectedIndex == 1 && _leftRemoteSession is not null)
+                    await QueueLocalDirectoryAsync(entry.FullPath, _leftRemoteSession,
+                        NormalizeRemotePath($"{_leftRemoteDirectory}/{entry.Name}"), TransferDirection.UploadToLeft);
+                continue;
+            }
+            QueueEntryView queueEntry;
+            if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 0)
+            {
+                var destination = Path.Combine(_localDirectory, entry.Name);
+                if (File.Exists(destination) && MessageBox.Show($"Replace '{entry.Name}'?", "Transfer", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) continue;
+                queueEntry = AddQueue(entry.Name, entry.FullPath, destination, TransferDirection.Download);
+            }
+            else if (RightMode.SelectedIndex == 0 && LeftMode.SelectedIndex == 1)
+                queueEntry = AddQueue(entry.Name, entry.FullPath, NormalizeRemotePath($"{_leftRemoteDirectory}/{entry.Name}"), TransferDirection.UploadToLeft);
+            else if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 1)
+                queueEntry = AddQueue(entry.Name, entry.FullPath, NormalizeRemotePath($"{_leftRemoteDirectory}/{entry.Name}"), TransferDirection.RelayRightToLeft);
+            else continue;
+            Schedule(queueEntry);
         }
-        QueueEntryView queueEntry;
-        if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 0)
-        {
-            var destination = Path.Combine(_localDirectory, entry.Name);
-            if (File.Exists(destination) && MessageBox.Show($"Replace '{entry.Name}'?", "Transfer", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            queueEntry = AddQueue(entry.Name, entry.FullPath, destination, TransferDirection.Download);
-        }
-        else if (RightMode.SelectedIndex == 0 && LeftMode.SelectedIndex == 1)
-            queueEntry = AddQueue(entry.Name, entry.FullPath, NormalizeRemotePath($"{_leftRemoteDirectory}/{entry.Name}"), TransferDirection.UploadToLeft);
-        else if (RightMode.SelectedIndex == 1 && LeftMode.SelectedIndex == 1)
-            queueEntry = AddQueue(entry.Name, entry.FullPath, NormalizeRemotePath($"{_leftRemoteDirectory}/{entry.Name}"), TransferDirection.RelayRightToLeft);
-        else return;
-        Schedule(queueEntry);
         if (LeftMode.SelectedIndex == 0) LoadLocalDirectory(_localDirectory); else await NavigateLeftRemoteAsync(_leftRemoteDirectory);
     }
 
     private async void Upload_Click(object sender, RoutedEventArgs e)
     {
-        if (LocalList.SelectedItem is not LocalEntryView entry) return;
-        if (entry.IsDirectory)
+        var entries = LocalList.SelectedItems.Cast<LocalEntryView>().ToList();
+        if (entries.Count == 0) return;
+        foreach (var entry in entries)
         {
-            if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 1 && _leftRemoteSession is not null && _remoteSession is not null)
-                await QueueRemoteDirectoryAsync(_leftRemoteSession, _remoteSession, entry.FullPath,
-                    NormalizeRemotePath($"{_remoteDirectory}/{entry.Name}"), TransferDirection.RelayLeftToRight);
-            else if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 0 && _leftRemoteSession is not null)
-                await QueueRemoteToLocalDirectoryAsync(_leftRemoteSession, entry.FullPath,
-                    Path.Combine(_rightLocalDirectory, entry.Name), TransferDirection.DownloadFromLeft);
-            return;
+            if (entry.IsDirectory)
+            {
+                if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 1 && _leftRemoteSession is not null && _remoteSession is not null)
+                    await QueueRemoteDirectoryAsync(_leftRemoteSession, _remoteSession, entry.FullPath,
+                        NormalizeRemotePath($"{_remoteDirectory}/{entry.Name}"), TransferDirection.RelayLeftToRight);
+                else if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 0 && _leftRemoteSession is not null)
+                    await QueueRemoteToLocalDirectoryAsync(_leftRemoteSession, entry.FullPath,
+                        Path.Combine(_rightLocalDirectory, entry.Name), TransferDirection.DownloadFromLeft);
+                else if (LeftMode.SelectedIndex == 0 && RightMode.SelectedIndex == 1 && _remoteSession is not null)
+                    await QueueLocalDirectoryAsync(entry.FullPath, _remoteSession,
+                        NormalizeRemotePath($"{_remoteDirectory}/{entry.Name}"), TransferDirection.Upload);
+                continue;
+            }
+            QueueEntryView queueEntry;
+            var size = File.Exists(entry.FullPath) ? new FileInfo(entry.FullPath).Length : 0;
+            if (LeftMode.SelectedIndex == 0 && RightMode.SelectedIndex == 1)
+                queueEntry = AddQueue(entry.Name, entry.FullPath, NormalizeRemotePath($"{_remoteDirectory}/{entry.Name}"), TransferDirection.Upload, size);
+            else if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 0)
+            {
+                var destination = Path.Combine(_rightLocalDirectory, entry.Name);
+                if (File.Exists(destination) && MessageBox.Show($"Replace '{entry.Name}'?", "Transfer", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) continue;
+                queueEntry = AddQueue(entry.Name, entry.FullPath, destination, TransferDirection.DownloadFromLeft);
+            }
+            else if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 1)
+                queueEntry = AddQueue(entry.Name, entry.FullPath, NormalizeRemotePath($"{_remoteDirectory}/{entry.Name}"), TransferDirection.RelayLeftToRight);
+            else continue;
+            Schedule(queueEntry);
         }
-        QueueEntryView queueEntry;
-        if (LeftMode.SelectedIndex == 0 && RightMode.SelectedIndex == 1)
-            queueEntry = AddQueue(entry.Name, entry.FullPath, NormalizeRemotePath($"{_remoteDirectory}/{entry.Name}"), TransferDirection.Upload);
-        else if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 0)
-        {
-            var destination = Path.Combine(_rightLocalDirectory, entry.Name);
-            if (File.Exists(destination) && MessageBox.Show($"Replace '{entry.Name}'?", "Transfer", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            queueEntry = AddQueue(entry.Name, entry.FullPath, destination, TransferDirection.DownloadFromLeft);
-        }
-        else if (LeftMode.SelectedIndex == 1 && RightMode.SelectedIndex == 1)
-            queueEntry = AddQueue(entry.Name, entry.FullPath, NormalizeRemotePath($"{_remoteDirectory}/{entry.Name}"), TransferDirection.RelayLeftToRight);
-        else return;
-        Schedule(queueEntry);
         if (RightMode.SelectedIndex == 0) LoadRightLocalDirectory(_rightLocalDirectory); else await NavigateRemoteAsync(_remoteDirectory);
     }
 
@@ -767,6 +782,39 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task QueueLocalDirectoryAsync(string sourceRoot, FtpRemoteSession destination,
+        string destinationRoot, TransferDirection direction)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            var pending = new Stack<(string Source, string Destination)>();
+            var files = new List<(FileInfo File, string Destination)>();
+            pending.Push((Path.GetFullPath(sourceRoot), destinationRoot));
+            while (pending.Count > 0)
+            {
+                var folder = pending.Pop();
+                await EnsureRemoteDirectoryAsync(destination, folder.Destination, timeout.Token);
+                foreach (var child in Directory.EnumerateFileSystemEntries(folder.Source))
+                {
+                    var name = Path.GetFileName(child);
+                    var target = NormalizeRemotePath($"{folder.Destination}/{name}");
+                    if (Directory.Exists(child)) pending.Push((child, target));
+                    else if (!ShouldSkip(name)) files.Add((new FileInfo(child), target));
+                }
+            }
+            foreach (var file in files.OrderBy(file => PriorityRank(file.File.Name)).ThenBy(file => file.File.Name, StringComparer.OrdinalIgnoreCase))
+                Schedule(AddQueue(file.File.Name, file.File.FullName, file.Destination, direction, file.File.Length));
+            LogText.AppendText($"{Environment.NewLine}Queued local folder {sourceRoot}: {files.Count} files.");
+        }
+        catch (Exception exception)
+        {
+            LogText.AppendText($"{Environment.NewLine}Could not queue local folder {sourceRoot}: {FriendlyMessage(exception)}");
+            ConnectionStatus.Text = "Local folder queue failed";
+        }
+        LogText.ScrollToEnd();
+    }
+
     private int PriorityRank(string name)
     {
         var patterns = _settings.PriorityPatterns.Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -798,7 +846,10 @@ public partial class MainWindow : Window
     private void FileList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is ListView list && ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListViewItem item)
+        {
+            if (!item.IsSelected) list.SelectedItems.Clear();
             item.IsSelected = true;
+        }
     }
     private void LocalList_MouseMove(object sender, MouseEventArgs e)
     {
