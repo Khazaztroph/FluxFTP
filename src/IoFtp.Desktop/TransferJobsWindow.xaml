@@ -31,7 +31,7 @@
                 <GridViewColumn Header="LEFT" DisplayMemberBinding="{Binding Left}" Width="85"/>
                 <GridViewColumn Header="SPEED" DisplayMemberBinding="{Binding Speed}" Width="80"/>
                 <GridViewColumn Header="DONE" Width="150"><GridViewColumn.CellTemplate><DataTemplate>
-                    <Grid Margin="2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent}" Height="16" Background="{StaticResource WindowBrush}" Foreground="{StaticResource AccentBrush}"/>
+                    <Grid Margin="2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}" Height="16" Background="{StaticResource WindowBrush}" Foreground="{StaticResource AccentBrush}"/>
                         <TextBlock Text="{Binding Done}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
                     </Grid>
                 </DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>

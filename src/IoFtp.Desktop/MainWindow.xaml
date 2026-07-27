@@ -177,7 +177,7 @@
                                 <GridViewColumn Header="Source" DisplayMemberBinding="{Binding Source}" Width="260" />
                                 <GridViewColumn Header="Destination" DisplayMemberBinding="{Binding Destination}" Width="260" />
                                 <GridViewColumn Header="Progress" Width="230"><GridViewColumn.CellTemplate><DataTemplate>
-                                    <Grid Margin="3,2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent}" Height="18" Background="{StaticResource WindowBrush}" Foreground="{StaticResource AccentBrush}"/>
+                                    <Grid Margin="3,2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}" Height="18" Background="{StaticResource WindowBrush}" Foreground="{StaticResource AccentBrush}"/>
                                         <TextBlock Text="{Binding ProgressDisplay}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
                                     </Grid>
                                 </DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
