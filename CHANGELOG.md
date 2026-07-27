@@ -2,6 +2,13 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.16 — 2026-07-28
+
+### Fixed
+
+- Opening the embedded transfer queue no longer crashes while jobs are active.
+- The Transfer Jobs progress bars now use the same safe one-way progress binding.
+
 ## 1.0.15 — 2026-07-27
 
 ### Added
