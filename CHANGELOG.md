@@ -2,6 +2,19 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.18 — 2026-07-29
+
+### Added
+
+- Per-site FXP data role selection: Auto, PASV or PORT.
+- The selected FXP data role is persisted in `FluxFTP-sites.ini` and exposed through the API as `fxp_data_role`.
+
+### Fixed
+
+- Clear FXP can retry with the reverse PASV/PORT topology when the standard route times out.
+- A successful reverse route is remembered for the remaining queued files, avoiding repeated timeout delays.
+- FXP starts RETR and STOR together for compatibility with servers that wait for the peer before sending a preliminary reply.
+
 ## 1.0.17 — 2026-07-28
 
 ### Added

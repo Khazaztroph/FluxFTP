@@ -367,6 +367,12 @@ internal sealed class ApiServer : IAsyncDisposable
         cepr = profile.EffectiveOptions.CeprSupported, use_xdupe = profile.EffectiveOptions.UseXdupe,
         xdupe = profile.EffectiveOptions.UseXdupe, disabled = false,
         fxp_protection = profile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear ? "CLEAR" : "AUTO",
+        fxp_data_role = profile.EffectiveOptions.FxpDataRole switch
+        {
+            FxpDataRole.Passive => "PASV",
+            FxpDataRole.Active => "PORT",
+            _ => "AUTO"
+        },
         except_source_sites = SplitList(profile.EffectiveOptions.BlockTransfersFrom), except_target_sites = SplitList(profile.EffectiveOptions.BlockTransfersTo),
         affils = SplitList(profile.EffectiveOptions.Affils), force_binary = profile.EffectiveOptions.ForceBinaryMode,
         force_binary_mode = profile.EffectiveOptions.ForceBinaryMode,
@@ -383,7 +389,7 @@ internal sealed class ApiServer : IAsyncDisposable
             BlockTransfersTo: string.Join(' ', request.ExceptTargetSites ?? []), ForceBinaryMode: request.ForceBinary ?? true,
             Affils: string.Join(' ', request.Affils ?? []));
         if (request.ForceBinaryMode is not null) options = options with { ForceBinaryMode = request.ForceBinaryMode.Value };
-        options = options with { FxpProtection = ParseFxpProtection(request.FxpProtection) };
+        options = options with { FxpProtection = ParseFxpProtection(request.FxpProtection), FxpDataRole = ParseFxpDataRole(request.FxpDataRole) };
         return new(Guid.NewGuid(), request.Name!, primary.Host, primary.Port, request.User ?? "anonymous", protocol,
             request.Password ?? "", ListingMode: ParseListingMode(request.ListCommand),
             Options: options, AlternateAddresses: string.Join(' ', alternates), Description: request.Description ?? "");
@@ -404,6 +410,7 @@ internal sealed class ApiServer : IAsyncDisposable
             CeprSupported = request.CeprSupported ?? request.Cepr ?? profile.EffectiveOptions.CeprSupported,
             UseXdupe = request.UseXdupe ?? request.Xdupe ?? profile.EffectiveOptions.UseXdupe,
             FxpProtection = request.FxpProtection is null ? profile.EffectiveOptions.FxpProtection : ParseFxpProtection(request.FxpProtection),
+            FxpDataRole = request.FxpDataRole is null ? profile.EffectiveOptions.FxpDataRole : ParseFxpDataRole(request.FxpDataRole),
             BlockTransfersFrom = request.ExceptSourceSites is null ? profile.EffectiveOptions.BlockTransfersFrom : string.Join(' ', request.ExceptSourceSites),
             BlockTransfersTo = request.ExceptTargetSites is null ? profile.EffectiveOptions.BlockTransfersTo : string.Join(' ', request.ExceptTargetSites),
             Affils = request.Affils is null ? profile.EffectiveOptions.Affils : string.Join(' ', request.Affils),
@@ -418,6 +425,12 @@ internal sealed class ApiServer : IAsyncDisposable
     private static TransferProtocol ParseTls(string? value) => value?.ToUpperInvariant() switch { "IMPLICIT" => TransferProtocol.FtpsImplicit, "NONE" => TransferProtocol.Ftp, _ => TransferProtocol.FtpsExplicit };
     private static FxpProtectionMode ParseFxpProtection(string? value) =>
         value?.Equals("CLEAR", StringComparison.OrdinalIgnoreCase) == true ? FxpProtectionMode.Clear : FxpProtectionMode.AutoSecure;
+    private static FxpDataRole ParseFxpDataRole(string? value) => value?.ToUpperInvariant() switch
+    {
+        "PASV" or "PASSIVE" => FxpDataRole.Passive,
+        "PORT" or "ACTIVE" => FxpDataRole.Active,
+        _ => FxpDataRole.Auto
+    };
     private static DirectoryListingMode ParseListingMode(string? value) => value?.ToUpperInvariant() switch
     {
         "LIST" => DirectoryListingMode.ListOnly,
@@ -522,6 +535,7 @@ internal sealed class ApiServer : IAsyncDisposable
         [property: JsonPropertyName("use_xdupe")] bool? UseXdupe = null,
         bool? Xdupe = null,
         [property: JsonPropertyName("fxp_protection")] string? FxpProtection = null,
+        [property: JsonPropertyName("fxp_data_role")] string? FxpDataRole = null,
         [property: JsonPropertyName("except_source_sites")] List<string>? ExceptSourceSites = null,
         [property: JsonPropertyName("except_target_sites")] List<string>? ExceptTargetSites = null,
         List<string>? Affils = null,

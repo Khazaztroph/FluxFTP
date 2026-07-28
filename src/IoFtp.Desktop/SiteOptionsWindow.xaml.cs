@@ -28,6 +28,15 @@ public partial class SiteOptionsWindow : Window
         FxpProtectionBox.DisplayMemberPath = nameof(FxpProtectionChoice.Label);
         FxpProtectionBox.SelectedItem = ((FxpProtectionChoice[])FxpProtectionBox.ItemsSource)
             .First(item => item.Mode == options.FxpProtection);
+        FxpDataRoleBox.ItemsSource = new[]
+        {
+            new FxpDataRoleChoice(FxpDataRole.Auto, "Auto — detect and remember"),
+            new FxpDataRoleChoice(FxpDataRole.Passive, "PASV — passive server"),
+            new FxpDataRoleChoice(FxpDataRole.Active, "PORT — active server (CGNAT)")
+        };
+        FxpDataRoleBox.DisplayMemberPath = nameof(FxpDataRoleChoice.Label);
+        FxpDataRoleBox.SelectedItem = ((FxpDataRoleChoice[])FxpDataRoleBox.ItemsSource)
+            .First(item => item.Role == options.FxpDataRole);
         BlockFromBox.Text = options.BlockTransfersFrom; BlockToBox.Text = options.BlockTransfersTo;
         AffilsBox.Text = options.Affils;
     }
@@ -44,11 +53,13 @@ public partial class SiteOptionsWindow : Window
             StayLoggedInBox.IsChecked == true, string.IsNullOrWhiteSpace(BasePathBox.Text) ? "/" : BasePathBox.Text.Trim(),
             TlsTransfersBox.IsChecked == true, BinaryModeBox.IsChecked == true, idle, BlockFromBox.Text.Trim(), BlockToBox.Text.Trim(), SecureListingsBox.IsChecked == true,
             NeedsPretBox.IsChecked == true, CeprBox.IsChecked == true, XdupeBox.IsChecked == true, AffilsBox.Text.Trim(),
-            (FxpProtectionBox.SelectedItem as FxpProtectionChoice)?.Mode ?? FxpProtectionMode.AutoSecure);
+            (FxpProtectionBox.SelectedItem as FxpProtectionChoice)?.Mode ?? FxpProtectionMode.AutoSecure,
+            (FxpDataRoleBox.SelectedItem as FxpDataRoleChoice)?.Role ?? FxpDataRole.Auto);
         DialogResult = true;
     }
 
     private static bool TryPositive(string text, out int value) => int.TryParse(text, out value) && value > 0;
     private static bool TryNonNegative(string text, out int value) => int.TryParse(text, out value) && value >= 0;
     private sealed record FxpProtectionChoice(FxpProtectionMode Mode, string Label);
+    private sealed record FxpDataRoleChoice(FxpDataRole Role, string Label);
 }

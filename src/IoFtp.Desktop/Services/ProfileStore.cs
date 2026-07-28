@@ -71,6 +71,7 @@ internal sealed class ProfileStore
             Write(text, "UseXdupe", options.UseXdupe);
             Write(text, "Affils", options.Affils);
             Write(text, "FxpProtection", options.FxpProtection);
+            Write(text, "FxpDataRole", options.FxpDataRole);
         }
 
         var temporaryPath = _path + ".tmp";
@@ -93,7 +94,8 @@ internal sealed class ProfileStore
                 Bool(values, "StayLoggedIn"), Get(values, "BasePath", "/"), Bool(values, "PreferTlsTransfers", true),
                 Bool(values, "ForceBinaryMode", true), Int(values, "MaxIdleSeconds", 60),
                 Get(values, "BlockTransfersFrom"), Get(values, "BlockTransfersTo"), Bool(values, "SecureFileListings", true), Bool(values, "NeedsPret"), Bool(values, "CeprSupported"), Bool(values, "UseXdupe"), Get(values, "Affils"),
-                EnumValue(values, "FxpProtection", FxpProtectionMode.AutoSecure));
+                EnumValue(values, "FxpProtection", FxpProtectionMode.AutoSecure),
+                EnumValue(values, "FxpDataRole", FxpDataRole.Auto));
             result.Add(new ConnectionProfile(id, Get(values, "Name", "Site"), Get(values, "Host"), Int(values, "Port", 21),
                 Get(values, "Username"), EnumValue(values, "Protocol", TransferProtocol.Ftp), Unprotect(Get(values, "Password")),
                 Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.Auto), options,

@@ -59,6 +59,7 @@ public partial class MainWindow : Window
     private readonly System.Windows.Threading.DispatcherTimer _legendTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly ExternalScriptRunner _scriptRunner = new();
     private readonly UpdateCheckService _updateCheckService = new();
+    private readonly HashSet<(Guid Source, Guid Destination)> _reverseFxpPairs = [];
     private bool _exitRequested;
     private int _legendOffset;
     public MainWindow()
@@ -974,9 +975,36 @@ public partial class MainWindow : Window
                         LogText.AppendText($"{Environment.NewLine}Attempting direct {(clearFxp ? "clear" : "secure")} FXP: {entry.Name}");
                         var fxpStartedAt = DateTime.UtcNow;
                         using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        var destinationProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestination! : entry.Direction == TransferDirection.RelayLeftToRight ? rightProfile! : leftProfile!;
+                        var sourceProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpSource! :
+                            entry.Direction == TransferDirection.RelayLeftToRight ? leftProfile! : rightProfile!;
+                        var destinationProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestination! :
+                            entry.Direction == TransferDirection.RelayLeftToRight ? rightProfile! : leftProfile!;
+                        var pair = (Source: sourceProfile.Id, Destination: destinationProfile.Id);
+                        var configuredReverse = PreferredReverseFxp(sourceProfile, destinationProfile);
+                        var useReverse = clearFxp && (configuredReverse ?? _reverseFxpPairs.Contains(pair));
                         var monitor = MonitorFxpAsync(destinationProfile, entry, monitorCancellation.Token);
-                        try { await sourceSession.FxpToAsync(destinationSession, entry.Source, entry.Destination, cancellationToken); }
+                        try
+                        {
+                            if (useReverse)
+                            {
+                                var routeSource = configuredReverse == true ? "configured" : "learned";
+                                LogText.AppendText($"{Environment.NewLine}Using {routeSource} PASV/PORT route for {sourceProfile.Name} → {destinationProfile.Name}: {entry.Name}");
+                                await sourceSession.FxpToAsync(destinationSession, entry.Source, entry.Destination,
+                                    cancellationToken, reverseDataConnection: true);
+                            }
+                            else
+                            {
+                                try { await sourceSession.FxpToAsync(destinationSession, entry.Source, entry.Destination, cancellationToken); }
+                                catch (FtpCommandException exception) when (clearFxp && exception.StatusCode == 425)
+                                {
+                                    LogText.AppendText($"{Environment.NewLine}Standard clear FXP timed out; retrying with source PASV and destination PORT: {entry.Name}");
+                                    await sourceSession.RetryFxpWithReversedTopologyAsync(
+                                        destinationSession, entry.Source, entry.Destination, cancellationToken);
+                                    _reverseFxpPairs.Add(pair);
+                                    LogText.AppendText($"{Environment.NewLine}Remembered reverse FXP route for {sourceProfile.Name} → {destinationProfile.Name}.");
+                                }
+                            }
+                        }
                         finally
                         {
                             monitorCancellation.Cancel();
@@ -1069,6 +1097,15 @@ public partial class MainWindow : Window
             if (apiFxpDestinationWorker is not null) await apiFxpDestinationWorker.DisposeAsync();
             SaveQueue(); UpdateQueueStatus(); LogText.ScrollToEnd();
         }
+    }
+
+    private static bool? PreferredReverseFxp(ConnectionProfile source, ConnectionProfile destination)
+    {
+        var reverse = source.EffectiveOptions.FxpDataRole == FxpDataRole.Passive ||
+            destination.EffectiveOptions.FxpDataRole == FxpDataRole.Active;
+        var standard = source.EffectiveOptions.FxpDataRole == FxpDataRole.Active ||
+            destination.EffectiveOptions.FxpDataRole == FxpDataRole.Passive;
+        return reverse == standard ? null : reverse;
     }
 
     private bool DestinationUsesXdupe(QueueEntryView entry)

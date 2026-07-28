@@ -119,7 +119,8 @@ public sealed class FtpRemoteSession : IRemoteSession
         throw new IOException("None of the configured site addresses could be reached.", lastError);
     }
 
-    public async Task FxpToAsync(FtpRemoteSession destination, string sourcePath, string destinationPath, CancellationToken cancellationToken)
+    public async Task FxpToAsync(FtpRemoteSession destination, string sourcePath, string destinationPath,
+        CancellationToken cancellationToken, bool reverseDataConnection = false)
     {
         EnsureConnected(); destination.EnsureConnected();
         if (ReferenceEquals(this, destination)) throw new InvalidOperationException("FXP requires two different sessions.");
@@ -152,6 +153,28 @@ public sealed class FtpRemoteSession : IRemoteSession
         var usedCpsv = false;
         await PrepareDataCommandAsync($"RETR {sourcePath}", cancellationToken);
         await destination.PrepareDataCommandAsync($"STOR {destinationPath}", cancellationToken);
+        if (reverseDataConnection)
+        {
+            if (!clearFxp) throw new NotSupportedException("Reversed FXP topology is currently available for clear FXP only.");
+            FtpResponse sourcePassive;
+            (string Host, int Port) sourceAdvertised;
+            if (_profile!.EffectiveOptions.CeprSupported)
+            {
+                sourcePassive = await CommandAsync("EPSV", cancellationToken);
+                EnsureSuccess(sourcePassive, 229);
+                sourceAdvertised = ParseExtendedPassiveEndpoint(sourcePassive.Message, _profile.Host, true);
+            }
+            else
+            {
+                sourcePassive = await CommandAsync("PASV", cancellationToken);
+                EnsureSuccess(sourcePassive, 227);
+                sourceAdvertised = ParsePassiveEndpoint(sourcePassive.Message);
+            }
+            await ConfigureActiveFxpEndpointAsync(destination, sourceAdvertised, cancellationToken);
+            LastFxpNegotiation = "PASV/PORT (reverse)";
+            await StartAndCompleteFxpAsync(destination, sourcePath, destinationPath, cancellationToken);
+            return;
+        }
         FtpResponse passive;
         (string Host, int Port) advertised;
         if (destination._profile!.EffectiveOptions.CeprSupported)
@@ -177,11 +200,6 @@ public sealed class FtpRemoteSession : IRemoteSession
         // For FXP the source server must connect to the address explicitly
         // advertised by the passive destination. This may be its public/NAT
         // address and is intentionally not the control connection address.
-        if (!IPAddress.TryParse(advertised.Host, out var destinationAddress))
-            throw new IOException("The passive FXP server returned an invalid address.");
-        if (destinationAddress.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
-            throw new NotSupportedException("The passive FXP server returned an unsupported address family.");
-
         if (secureFxp && usedCpsv)
         {
             // CPSV makes the passive destination the TLS client for this transfer;
@@ -201,25 +219,54 @@ public sealed class FtpRemoteSession : IRemoteSession
         }
         else LastFxpNegotiation = "PASV";
 
-        if (destinationAddress.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            if (!Capabilities.Contains("EPRT")) throw new NotSupportedException("IPv6 FXP requires EPRT support on the source server.");
-            EnsureSuccess(await CommandAsync($"EPRT |2|{destinationAddress}|{advertised.Port}|", cancellationToken), 200);
-        }
-        else
-        {
-            var bytes = destinationAddress.GetAddressBytes();
-            EnsureSuccess(await CommandAsync($"PORT {string.Join(',', bytes)},{advertised.Port / 256},{advertised.Port % 256}", cancellationToken), 200);
-        }
+        await ConfigureActiveFxpEndpointAsync(this, advertised, cancellationToken);
+        await StartAndCompleteFxpAsync(destination, sourcePath, destinationPath, cancellationToken);
+    }
 
-        var store = await destination.CommandAsync($"STOR {destinationPath}", cancellationToken);
-        EnsureSuccess(store, 125, 150);
-        var retrieve = await CommandAsync($"RETR {sourcePath}", cancellationToken);
-        EnsureSuccess(retrieve, 125, 150);
+    public async Task RetryFxpWithReversedTopologyAsync(FtpRemoteSession destination, string sourcePath,
+        string destinationPath, CancellationToken cancellationToken)
+    {
+        var sourceProfile = _profile ?? throw new InvalidOperationException("The FXP source profile is unavailable.");
+        var destinationProfile = destination._profile ?? throw new InvalidOperationException("The FXP destination profile is unavailable.");
+        await Task.WhenAll(DisconnectAsync(CancellationToken.None), destination.DisconnectAsync(CancellationToken.None));
+        await Task.WhenAll(ConnectAsync(sourceProfile, cancellationToken), destination.ConnectAsync(destinationProfile, cancellationToken));
+        await FxpToAsync(destination, sourcePath, destinationPath, cancellationToken, reverseDataConnection: true);
+    }
+
+    private async Task StartAndCompleteFxpAsync(FtpRemoteSession destination, string sourcePath,
+        string destinationPath, CancellationToken cancellationToken)
+    {
+        // Start both ends together. Some FTP servers do not emit 125/150 until
+        // the peer has actually opened the negotiated data connection; awaiting
+        // STOR before sending RETR can therefore deadlock until a 425 timeout.
+        var starts = await Task.WhenAll(
+            destination.CommandAsync($"STOR {destinationPath}", cancellationToken),
+            CommandAsync($"RETR {sourcePath}", cancellationToken));
+        EnsureSuccess(starts[0], 125, 150);
+        EnsureSuccess(starts[1], 125, 150);
 
         var completions = await Task.WhenAll(ReadResponseAsync(cancellationToken), destination.ReadResponseAsync(cancellationToken));
         EnsureSuccess(completions[0], 226, 250);
         EnsureSuccess(completions[1], 226, 250);
+    }
+
+    private static async Task ConfigureActiveFxpEndpointAsync(FtpRemoteSession activeSession,
+        (string Host, int Port) advertised, CancellationToken cancellationToken)
+    {
+        if (!IPAddress.TryParse(advertised.Host, out var address))
+            throw new IOException("The passive FXP server returned an invalid address.");
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (!activeSession.Capabilities.Contains("EPRT"))
+                throw new NotSupportedException("IPv6 FXP requires EPRT support on the active server.");
+            EnsureSuccess(await activeSession.CommandAsync($"EPRT |2|{address}|{advertised.Port}|", cancellationToken), 200);
+            return;
+        }
+        if (address.AddressFamily != AddressFamily.InterNetwork)
+            throw new NotSupportedException("The passive FXP server returned an unsupported address family.");
+        var bytes = address.GetAddressBytes();
+        EnsureSuccess(await activeSession.CommandAsync(
+            $"PORT {string.Join(',', bytes)},{advertised.Port / 256},{advertised.Port % 256}", cancellationToken), 200);
     }
 
     public async Task<IReadOnlyList<RemoteEntry>> ListAsync(string path, CancellationToken cancellationToken)
