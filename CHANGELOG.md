@@ -2,6 +2,19 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.17 — 2026-07-28
+
+### Added
+
+- Clearly visible drag handles for independently resizing Transfer Queue and Connection Log.
+- Resized queue and log heights continue to be restored on the next start.
+
+### Fixed
+
+- Auto FXP now uses clear PASV/PORT transfers when either site explicitly uses plain FTP, while two FTPS sites remain secure by default.
+- Unix `LIST` summary rows such as `total 10690` are no longer mistaken for files and queued for transfer.
+- Window layout persistence now rejects invalid non-finite dimensions instead of failing while the application closes.
+
 ## 1.0.16 — 2026-07-28
 
 ### Fixed

@@ -25,6 +25,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     public IReadOnlySet<string> Capabilities { get; private set; } = new HashSet<string>();
     public string LastFxpNegotiation { get; private set; } = "None";
     public FxpProtectionMode FxpProtection => _profile?.EffectiveOptions.FxpProtection ?? FxpProtectionMode.AutoSecure;
+    public bool UsesTlsControl => _profile?.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit;
 
     public async Task ConnectAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
@@ -125,13 +126,15 @@ public sealed class FtpRemoteSession : IRemoteSession
 
         var sourceProfile = _profile!;
         var destinationProfile = destination._profile!;
-        var clearFxp = sourceProfile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear ||
-            destinationProfile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear;
         var bothControlChannelsUseTls =
             sourceProfile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit &&
             destinationProfile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit;
-        if (!clearFxp && !bothControlChannelsUseTls)
-            throw new NotSupportedException("Auto FXP requires TLS on both sites. Select Clear FXP explicitly on a site to permit unencrypted server-to-server data.");
+        // Selecting plain FTP is already an explicit decision to operate without
+        // TLS. Auto therefore falls back to clear PASV/PORT FXP whenever either
+        // control connection is plain; Clear still forces this for two FTPS sites.
+        var clearFxp = !bothControlChannelsUseTls ||
+            sourceProfile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear ||
+            destinationProfile.EffectiveOptions.FxpProtection == FxpProtectionMode.Clear;
         var secureFxp = !clearFxp;
         if (clearFxp)
         {
@@ -559,6 +562,8 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     private static IReadOnlyList<RemoteEntry> ParseListing(string path, string listing) =>
         listing.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .Where(line => !IsListingSummary(line))
             .Select(line => ParseEntry(path, line)).Where(entry => entry is not null).Cast<RemoteEntry>().ToList();
 
     private static IReadOnlyList<RemoteEntry> ParseMlsdListing(string path, string listing) =>
@@ -595,10 +600,19 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     private static bool LooksLikeListEntry(string line)
     {
+        if (IsListingSummary(line)) return false;
         if (line.Length > 0 && line[0] is 'd' or '-' or 'l') return line.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 9;
         var fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return fields.Length >= 4 && DateTimeOffset.TryParse($"{fields[0]} {fields[1]}", CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeLocal, out _);
+    }
+
+    private static bool IsListingSummary(string line)
+    {
+        var fields = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return fields.Length == 2 &&
+            fields[0].Equals("total", StringComparison.OrdinalIgnoreCase) &&
+            long.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out _);
     }
 
     private async Task<(string Host, int Port)> OpenPassiveEndpointAsync(CancellationToken cancellationToken)
@@ -725,6 +739,7 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     private static RemoteEntry? ParseEntry(string parent, string line)
     {
+        if (IsListingSummary(line)) return null;
         var unix = line.Split(' ', 9, StringSplitOptions.RemoveEmptyEntries);
         if (unix.Length >= 9 && unix[0].Length > 0 && unix[0][0] is 'd' or '-' or 'l')
         {

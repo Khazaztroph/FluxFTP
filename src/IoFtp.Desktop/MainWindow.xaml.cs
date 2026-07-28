@@ -962,7 +962,8 @@ public partial class MainWindow : Window
                 var sourceSession = entry.Direction == TransferDirection.ApiFxp ? apiFxpSourceWorker! : entry.Direction == TransferDirection.RelayLeftToRight ? leftWorker! : rightWorker!;
                 var destinationSession = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestinationWorker! : entry.Direction == TransferDirection.RelayLeftToRight ? rightWorker! : leftWorker!;
                 await EnsureRemoteDirectoryAsync(destinationSession, RemoteParent(entry.Destination), cancellationToken);
-                var clearFxp = sourceSession.FxpProtection == FxpProtectionMode.Clear ||
+                var clearFxp = !sourceSession.UsesTlsControl || !destinationSession.UsesTlsControl ||
+                    sourceSession.FxpProtection == FxpProtectionMode.Clear ||
                     destinationSession.FxpProtection == FxpProtectionMode.Clear;
                 var directFxpAvailable = clearFxp || destinationSession.Capabilities.Contains("CPSV") ||
                     (sourceSession.Capabilities.Contains("SSCN") && destinationSession.Capabilities.Contains("SSCN"));
@@ -1387,13 +1388,15 @@ public partial class MainWindow : Window
     {
         var layout = _layoutStore.Load();
         if (layout is null) return;
-        Width = Math.Max(MinWidth, layout.Width); Height = Math.Max(MinHeight, layout.Height);
-        if (layout.Left >= SystemParameters.VirtualScreenLeft && layout.Left < SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth &&
+        Width = Math.Max(MinWidth, FiniteLayoutValue(layout.Width, Width));
+        Height = Math.Max(MinHeight, FiniteLayoutValue(layout.Height, Height));
+        if (double.IsFinite(layout.Left) && double.IsFinite(layout.Top) &&
+            layout.Left >= SystemParameters.VirtualScreenLeft && layout.Left < SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth &&
             layout.Top >= SystemParameters.VirtualScreenTop && layout.Top < SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight)
         { Left = layout.Left; Top = layout.Top; }
-        if (layout.LeftPaneWidth > 100) LeftPaneColumn.Width = new GridLength(layout.LeftPaneWidth);
-        _visibleQueueHeight = new GridLength(Math.Max(80, layout.QueueHeight));
-        _visibleLogHeight = new GridLength(Math.Max(70, layout.LogHeight));
+        if (double.IsFinite(layout.LeftPaneWidth) && layout.LeftPaneWidth > 100) LeftPaneColumn.Width = new GridLength(layout.LeftPaneWidth);
+        _visibleQueueHeight = new GridLength(Math.Max(80, FiniteLayoutValue(layout.QueueHeight, 190)));
+        _visibleLogHeight = new GridLength(Math.Max(70, FiniteLayoutValue(layout.LogHeight, 150)));
         if (layout.QueueVisible && QueueRow.Height.Value == 0) ToggleQueue_Click(this, new RoutedEventArgs());
         if (!layout.LogVisible && LogRow.Height.Value > 0) ToggleLog_Click(this, new RoutedEventArgs());
         if (layout.Maximized) WindowState = WindowState.Maximized;
@@ -1402,10 +1405,35 @@ public partial class MainWindow : Window
     private void SaveWindowLayout()
     {
         var bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
-        _layoutStore.Save(new WindowLayout(bounds.Left, bounds.Top, bounds.Width, bounds.Height,
-            WindowState == WindowState.Maximized, LeftPaneColumn.ActualWidth,
+        _layoutStore.Save(new WindowLayout(
+            FiniteLayoutValue(bounds.Left, SystemParameters.WorkArea.Left),
+            FiniteLayoutValue(bounds.Top, SystemParameters.WorkArea.Top),
+            FiniteLayoutValue(bounds.Width, Math.Max(MinWidth, ActualWidth)),
+            FiniteLayoutValue(bounds.Height, Math.Max(MinHeight, ActualHeight)),
+            WindowState == WindowState.Maximized, FiniteLayoutValue(LeftPaneColumn.ActualWidth, 500),
             QueueRow.Height.Value > 0, QueueRow.Height.Value > 0 ? QueueRow.ActualHeight : _visibleQueueHeight.Value,
             LogRow.Height.Value > 0, LogRow.Height.Value > 0 ? LogRow.ActualHeight : _visibleLogHeight.Value));
+    }
+
+    private static double FiniteLayoutValue(double value, double fallback) =>
+        double.IsFinite(value) ? value : fallback;
+
+    private void QueueSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+    {
+        if (QueuePanel.Visibility != Visibility.Visible) return;
+        var height = Math.Clamp(QueueRow.ActualHeight - e.VerticalChange, 80, Math.Max(80, ActualHeight * 0.7));
+        QueueRow.Height = new GridLength(height);
+        _visibleQueueHeight = QueueRow.Height;
+        e.Handled = true;
+    }
+
+    private void LogSplitter_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+    {
+        if (LogPanel.Visibility != Visibility.Visible) return;
+        var height = Math.Clamp(LogRow.ActualHeight - e.VerticalChange, 70, Math.Max(70, ActualHeight * 0.75));
+        LogRow.Height = new GridLength(height);
+        _visibleLogHeight = LogRow.Height;
+        e.Handled = true;
     }
 
     private void ToggleLog_Click(object sender, RoutedEventArgs e)
@@ -1424,7 +1452,7 @@ public partial class MainWindow : Window
         {
             LogPanel.Visibility = Visibility.Visible;
             LogSplitter.Visibility = Visibility.Visible;
-            LogSplitterRow.Height = new GridLength(6);
+            LogSplitterRow.Height = new GridLength(8);
             LogRow.MinHeight = 70;
             LogRow.Height = _visibleLogHeight.Value > 0 ? _visibleLogHeight : new GridLength(150);
             ToggleLogButton.Content = "Hide Log";
@@ -1447,7 +1475,7 @@ public partial class MainWindow : Window
         {
             QueuePanel.Visibility = Visibility.Visible;
             QueueSplitter.Visibility = Visibility.Visible;
-            QueueSplitterRow.Height = new GridLength(6);
+            QueueSplitterRow.Height = new GridLength(8);
             QueueRow.MinHeight = 80;
             QueueRow.Height = _visibleQueueHeight.Value > 0 ? _visibleQueueHeight : new GridLength(190);
             ToggleQueueButton.Content = "Hide Queue";
