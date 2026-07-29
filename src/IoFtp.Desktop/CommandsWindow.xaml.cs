@@ -88,7 +88,12 @@ public partial class CommandsWindow : Window
                 { if (_refreshDirectory is not null) await _refreshDirectory(); continue; }
                 var runInsideSelection = _selectedIsDirectory && command.StartsWith("SITE PRE ", StringComparison.OrdinalIgnoreCase);
                 var preParts = command.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
-                var preVariables = new Dictionary<string, string> { ["site"] = SelectionText.Text, ["path"] = _selectedPath, ["name"] = Path.GetFileName(_selectedPath.TrimEnd('/')), ["section"] = preParts.Length > 2 ? preParts[2] : "", ["status"] = "Starting" };
+                var selectedName = Path.GetFileName(_selectedPath.TrimEnd('/'));
+                var releaseName = preParts.Length > 3 ? preParts[3].Trim().TrimEnd('/') : selectedName;
+                var selectedParent = _selectedPath[..Math.Max(1, _selectedPath.TrimEnd('/').LastIndexOf('/'))];
+                var preWorkingDirectory = selectedParent;
+                var releasePath = $"{selectedParent.TrimEnd('/')}/{releaseName}";
+                var preVariables = new Dictionary<string, string> { ["site"] = SelectionText.Text, ["path"] = releasePath, ["name"] = releaseName, ["section"] = preParts.Length > 2 ? preParts[2] : "", ["status"] = "Starting" };
                 if (runInsideSelection && preParts.Length > 2)
                 {
                     var validation = SectionReleaseValidator.Validate(preParts[2], preVariables["name"]);
@@ -104,19 +109,11 @@ public partial class CommandsWindow : Window
                 if (runInsideSelection && _scriptEvent is not null) await _scriptEvent("BeforePre", preVariables, false);
                 if (runInsideSelection)
                 {
-                    await _session.ExecuteCommandAsync($"CWD {_selectedPath}", timeout.Token);
-                    OutputBox.AppendText($"Working directory: {_selectedPath}{Environment.NewLine}");
+                    await _session.ExecuteCommandAsync($"CWD {preWorkingDirectory}", timeout.Token);
+                    OutputBox.AppendText($"Working directory: {preWorkingDirectory}{Environment.NewLine}");
                 }
                 RemoteCommandResult result;
-                try { result = await _session.ExecuteCommandAsync(command, timeout.Token); }
-                finally
-                {
-                    if (runInsideSelection)
-                    {
-                        var parent = _selectedPath[..Math.Max(1, _selectedPath.TrimEnd('/').LastIndexOf('/'))];
-                        await _session.ExecuteCommandAsync($"CWD {parent}", timeout.Token);
-                    }
-                }
+                result = await _session.ExecuteCommandAsync(command, timeout.Token);
                 OutputBox.AppendText($"> {SafeDisplay(command)}{Environment.NewLine}{result.Message}{Environment.NewLine}{Environment.NewLine}");
                 if (runInsideSelection && _scriptEvent is not null) { preVariables["status"] = "Completed"; await _scriptEvent("AfterPre", preVariables, true); }
             }
@@ -129,7 +126,8 @@ public partial class CommandsWindow : Window
     private async Task<IReadOnlyList<string>> ExpandCommandsAsync(string script)
     {
         var selectedName = Path.GetFileName(_selectedPath.TrimEnd('/')); var parent = _selectedPath[..Math.Max(0, _selectedPath.LastIndexOf('/') + 1)];
-        var lines = script.Split(['\r','\n'], StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim())
+        var lines = script.Split(['\r','\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => string.Concat(line.Where(character => !char.IsControl(character))).Trim())
             .Where(line => line.Length > 0 && !line.StartsWith('&') && !line.StartsWith('/')).ToList();
         for (var index = 0; index < lines.Count; index++)
         {

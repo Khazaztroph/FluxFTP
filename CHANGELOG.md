@@ -2,6 +2,15 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.19 — 2026-07-29
+
+### Fixed
+
+- `SITE PRE` now runs from the selected release's parent directory, matching ioFTPD's expected working directory.
+- Delayed ioFTPD CWD-script replies are skipped so the actual PRE result is displayed and the control channel remains synchronized.
+- IRC formatting and other invisible control characters are removed from commands before they are sent.
+- PRE script variables now use the release named in the command and its resolved release path.
+
 ## 1.0.18 — 2026-07-29
 
 ### Added

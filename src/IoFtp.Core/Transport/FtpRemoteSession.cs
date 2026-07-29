@@ -445,17 +445,35 @@ public sealed class FtpRemoteSession : IRemoteSession
         try
         {
         EnsureConnected();
-        var normalized = command.Trim();
-        if (normalized.Length == 0 || normalized.Contains('\r') || normalized.Contains('\n'))
+        var raw = command.Trim();
+        if (raw.Length == 0 || raw.Contains('\r') || raw.Contains('\n'))
+            throw new ArgumentException("Enter exactly one FTP command.", nameof(command));
+        var normalized = string.Concat(raw.Where(character => !char.IsControl(character))).Trim();
+        if (normalized.Length == 0)
             throw new ArgumentException("Enter exactly one FTP command.", nameof(command));
         var verb = normalized.Split(' ', 2)[0];
         if (verb.Equals("PASS", StringComparison.OrdinalIgnoreCase) || verb.Equals("USER", StringComparison.OrdinalIgnoreCase) || verb.Equals("ACCT", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Credential commands are blocked in the command console.");
         var response = await CommandAsync(normalized, cancellationToken);
+        // ioFTPD CWD event scripts can emit an additional 250 reply after the
+        // normal CWD completion. If it arrives just after SITE PRE is sent,
+        // it is the first reply we read even though it belongs to CWD. Keep
+        // reading until the actual SITE PRE reply so the control channel does
+        // not remain one response behind.
+        if (normalized.StartsWith("SITE PRE ", StringComparison.OrdinalIgnoreCase))
+        {
+            var skippedCwdReplies = 0;
+            while (response.Code == 250 && LooksLikeDelayedCwdReply(response.Message) && skippedCwdReplies++ < 4)
+                response = await ReadResponseAsync(cancellationToken);
+        }
         return new RemoteCommandResult(response.Code, response.Message);
         }
         finally { _operationGate.Release(); }
     }
+
+    private static bool LooksLikeDelayedCwdReply(string message) =>
+        message.Contains("CWD", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("looks like a PRE", StringComparison.OrdinalIgnoreCase);
 
     public async Task<long?> GetSizeAsync(string remotePath, CancellationToken cancellationToken)
     {
