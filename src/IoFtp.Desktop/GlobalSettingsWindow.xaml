@@ -27,7 +27,9 @@
                     <CheckBox x:Name="MinimizeToTrayBox" Grid.Row="3" Grid.ColumnSpan="2" Content="Minimize and close FluxFTP to the system tray" Margin="0,14,0,4"/>
                 </Grid></TabItem>
                 <TabItem Header="Skiplist"><Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <TextBlock Text="Files skipped during folder / PRE transfers" FontWeight="SemiBold"/>
+                    <Grid><TextBlock Text="Files skipped during folder / PRE transfers" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Content="Advanced…" HorizontalAlignment="Right" Click="AdvancedSkiplist_Click"/>
+                    </Grid>
                     <TextBox x:Name="SkipPatternsBox" Grid.Row="1" Margin="0,10" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Cascadia Mono, Consolas"/>
                     <TextBlock Grid.Row="2" Text="One wildcard per line, for example *.message or *sample*. Matching files are not queued." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
                 </Grid></TabItem>

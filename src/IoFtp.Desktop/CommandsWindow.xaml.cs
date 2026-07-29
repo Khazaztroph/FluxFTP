@@ -76,6 +76,8 @@ public partial class CommandsWindow : Window
         catch (Exception exception) { OutputBox.AppendText($"SITE HELP failed: {exception.Message}{Environment.NewLine}"); }
     }
 
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
     private async void Run_Click(object sender, RoutedEventArgs e)
     {
         try

@@ -723,7 +723,10 @@ public partial class MainWindow : Window
                 foreach (var child in children)
                 {
                     var target = NormalizeRemotePath($"{folder.Destination}/{child.Name}");
-                    if (child.IsDirectory) pending.Push((child.FullPath, target));
+                    if (child.IsDirectory)
+                    {
+                        if (!ShouldSkip(child.Name, true)) pending.Push((child.FullPath, target));
+                    }
                     else if (!ShouldSkip(child.Name)) { files.Add((child, target)); fileCount++; }
                 }
             }
@@ -766,7 +769,10 @@ public partial class MainWindow : Window
                 {
                     if (child.Name is "." or "..") continue;
                     var target = Path.Combine(folder.Destination, child.Name);
-                    if (child.IsDirectory) pending.Push((child.FullPath, target));
+                    if (child.IsDirectory)
+                    {
+                        if (!ShouldSkip(child.Name, true)) pending.Push((child.FullPath, target));
+                    }
                     else if (!ShouldSkip(child.Name)) files.Add((child, target));
                 }
             }
@@ -800,7 +806,10 @@ public partial class MainWindow : Window
                 {
                     var name = Path.GetFileName(child);
                     var target = NormalizeRemotePath($"{folder.Destination}/{name}");
-                    if (Directory.Exists(child)) pending.Push((child, target));
+                    if (Directory.Exists(child))
+                    {
+                        if (!ShouldSkip(name, true)) pending.Push((child, target));
+                    }
                     else if (!ShouldSkip(name)) files.Add((new FileInfo(child), target));
                 }
             }
@@ -824,11 +833,8 @@ public partial class MainWindow : Window
         return patterns.Length;
     }
 
-    private bool ShouldSkip(string name)
-    {
-        var patterns = _settings.SkipPatterns.Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return patterns.Any(pattern => System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(pattern, name, true));
-    }
+    private bool ShouldSkip(string name, bool isDirectory = false) =>
+        SkipRuleMatcher.ShouldSkip(_settings, name, isDirectory, "Transfer");
 
     private static async Task EnsureRemoteDirectoryAsync(FtpRemoteSession session, string path, CancellationToken token)
     {
@@ -1747,7 +1753,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"Nuke detection blocked automated transfer: {sourceDirectory} ({nuke.Display}).");
             foreach (var child in children)
             {
-                if (child.Name is "." or ".." || ShouldSkip(child.Name)) continue;
+                if (child.Name is "." or ".." || ShouldSkip(child.Name, child.IsDirectory)) continue;
                 var childDestination = NormalizeRemotePath($"{destinationDirectory}/{child.Name}");
                 if (child.IsDirectory) await QueueDirectory(child.FullPath, childDestination);
                 else apiFiles.Add((child, childDestination));
@@ -1796,7 +1802,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"Nuke detection blocked automated download: {sourceDirectory} ({nuke.Display}).");
             foreach (var child in children)
             {
-                if (child.Name is "." or ".." || ShouldSkip(child.Name)) continue;
+                if (child.Name is "." or ".." || ShouldSkip(child.Name, child.IsDirectory)) continue;
                 var destination = Path.Combine(destinationDirectory, child.Name);
                 if (child.IsDirectory) { if (request.Recursive) await QueueDirectory(child.FullPath, destination); }
                 else downloadFiles.Add((child, destination));

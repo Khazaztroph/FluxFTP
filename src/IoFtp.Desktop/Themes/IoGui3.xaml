@@ -140,6 +140,30 @@
         <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
         <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
     </Style>
+    <Style x:Key="FilledProgressBar" TargetType="ProgressBar">
+        <Setter Property="Background" Value="{StaticResource WindowBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="2" SnapsToDevicePixels="True">
+                        <Grid x:Name="PART_Track" Margin="1" ClipToBounds="True">
+                            <Border x:Name="PART_Indicator" HorizontalAlignment="Left"
+                                    Background="{TemplateBinding Foreground}" CornerRadius="1"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsIndeterminate" Value="True">
+                            <Setter TargetName="PART_Indicator" Property="Opacity" Value="0.65"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style TargetType="StatusBarItem"><Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/></Style>
     <Style TargetType="TabControl"><Setter Property="Background" Value="{StaticResource SurfaceBrush}"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/><Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/></Style>
     <Style TargetType="TabItem">

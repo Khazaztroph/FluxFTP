@@ -2,7 +2,7 @@
         Title="Server Commands" Width="680" Height="520" MinWidth="560" MinHeight="420" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         Background="{StaticResource WindowBrush}" Foreground="{StaticResource TextBrush}">
     <DockPanel Margin="18" Background="{StaticResource WindowBrush}">
-        <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0"><StackPanel Orientation="Horizontal" HorizontalAlignment="Left"><Button Content="Load SITE HELP" Click="LoadSiteHelp_Click"/><Button Content="Import FTPRush XML" Click="Import_Click"/></StackPanel><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Close" IsCancel="True"/><Button Content="Run command" IsDefault="True" Click="Run_Click"/></StackPanel></Grid>
+        <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0"><StackPanel Orientation="Horizontal" HorizontalAlignment="Left"><Button Content="Load SITE HELP" Click="LoadSiteHelp_Click"/><Button Content="Import FTPRush XML" Click="Import_Click"/></StackPanel><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Close" IsCancel="True" Click="Close_Click"/><Button Content="Run command" IsDefault="True" Click="Run_Click"/></StackPanel></Grid>
         <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
             <TextBlock Text="SERVER COMMANDS" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"/>
             <TextBlock x:Name="SelectionText" Grid.Row="1" Foreground="{StaticResource MutedTextBrush}" Margin="0,4,0,14" TextWrapping="Wrap"/>

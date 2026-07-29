@@ -2,6 +2,22 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.20 — 2026-07-29
+
+### Added
+
+- Optional Advanced Skiplist rules with wildcard or regex matching, File/Directory/Both selection, Allow/Deny actions, scope and ordered first-match evaluation.
+- A filled aggregate progress bar in the main status area.
+
+### Changed
+
+- The default main-window size is reduced to fit smaller laptop displays while saved window layouts continue to be restored.
+- About now reflects the current FTP, FTPS, FXP, automation, import and ioFTPD feature set.
+
+### Fixed
+
+- The Close button in the modeless Server Commands window now closes the window correctly.
+
 ## 1.0.19 — 2026-07-29
 
 ### Fixed
