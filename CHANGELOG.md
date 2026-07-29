@@ -2,6 +2,13 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.21 — 2026-07-29
+
+### Added
+
+- Failed direct FXP attempts now log the source and destination sites, actual connected endpoints, full `RETR` and `STOR` paths, destination parent, data protection, selected route and PRET state.
+- Transfer diagnostics deliberately exclude usernames, passwords and authentication commands.
+
 ## 1.0.20 — 2026-07-29
 
 ### Added

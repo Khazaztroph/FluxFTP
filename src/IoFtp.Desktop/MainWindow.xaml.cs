@@ -968,6 +968,10 @@ public partial class MainWindow : Window
             {
                 var sourceSession = entry.Direction == TransferDirection.ApiFxp ? apiFxpSourceWorker! : entry.Direction == TransferDirection.RelayLeftToRight ? leftWorker! : rightWorker!;
                 var destinationSession = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestinationWorker! : entry.Direction == TransferDirection.RelayLeftToRight ? rightWorker! : leftWorker!;
+                var sourceProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpSource! :
+                    entry.Direction == TransferDirection.RelayLeftToRight ? leftProfile! : rightProfile!;
+                var destinationProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestination! :
+                    entry.Direction == TransferDirection.RelayLeftToRight ? rightProfile! : leftProfile!;
                 await EnsureRemoteDirectoryAsync(destinationSession, RemoteParent(entry.Destination), cancellationToken);
                 var clearFxp = !sourceSession.UsesTlsControl || !destinationSession.UsesTlsControl ||
                     sourceSession.FxpProtection == FxpProtectionMode.Clear ||
@@ -981,10 +985,6 @@ public partial class MainWindow : Window
                         LogText.AppendText($"{Environment.NewLine}Attempting direct {(clearFxp ? "clear" : "secure")} FXP: {entry.Name}");
                         var fxpStartedAt = DateTime.UtcNow;
                         using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        var sourceProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpSource! :
-                            entry.Direction == TransferDirection.RelayLeftToRight ? leftProfile! : rightProfile!;
-                        var destinationProfile = entry.Direction == TransferDirection.ApiFxp ? apiFxpDestination! :
-                            entry.Direction == TransferDirection.RelayLeftToRight ? rightProfile! : leftProfile!;
                         var pair = (Source: sourceProfile.Id, Destination: destinationProfile.Id);
                         var configuredReverse = PreferredReverseFxp(sourceProfile, destinationProfile);
                         var useReverse = clearFxp && (configuredReverse ?? _reverseFxpPairs.Contains(pair));
@@ -1035,6 +1035,8 @@ public partial class MainWindow : Window
                     }
                     catch (Exception fxpException)
                     {
+                        AppendFxpFailureDiagnostic(entry, sourceProfile, destinationProfile, sourceSession,
+                            destinationSession, clearFxp, PreferredReverseFxp(sourceProfile, destinationProfile));
                         LogText.AppendText($"{Environment.NewLine}Direct FXP rejected ({FriendlyMessage(fxpException)}). Reconnecting for client relay…");
                         if (entry.Direction == TransferDirection.ApiFxp)
                         {
@@ -1103,6 +1105,25 @@ public partial class MainWindow : Window
             if (apiFxpDestinationWorker is not null) await apiFxpDestinationWorker.DisposeAsync();
             SaveQueue(); UpdateQueueStatus(); LogText.ScrollToEnd();
         }
+    }
+
+    private void AppendFxpFailureDiagnostic(QueueEntryView entry, ConnectionProfile sourceProfile,
+        ConnectionProfile destinationProfile, FtpRemoteSession sourceSession, FtpRemoteSession destinationSession,
+        bool clearFxp, bool? configuredReverse)
+    {
+        var route = configuredReverse == true ? "source PASV / destination PORT"
+            : configuredReverse == false ? "destination PASV / source PORT"
+            : sourceSession.LastFxpNegotiation == "None" ? "Auto (negotiation did not complete)"
+            : sourceSession.LastFxpNegotiation;
+        LogText.AppendText(
+            $"{Environment.NewLine}FXP diagnostic:" +
+            $"{Environment.NewLine}  Source: {sourceProfile.Name} ({sourceSession.ConnectedHost}:{sourceSession.ConnectedPort})" +
+            $"{Environment.NewLine}  > RETR {entry.Source}" +
+            $"{Environment.NewLine}  Destination: {destinationProfile.Name} ({destinationSession.ConnectedHost}:{destinationSession.ConnectedPort})" +
+            $"{Environment.NewLine}  > STOR {entry.Destination}" +
+            $"{Environment.NewLine}  Destination parent: {RemoteParent(entry.Destination)}" +
+            $"{Environment.NewLine}  Data protection: {(clearFxp ? "Clear" : "TLS")}; route: {route}" +
+            $"{Environment.NewLine}  PRET: source {(sourceProfile.EffectiveOptions.NeedsPret ? "on" : "off")}, destination {(destinationProfile.EffectiveOptions.NeedsPret ? "on" : "off")}");
     }
 
     private static bool? PreferredReverseFxp(ConnectionProfile source, ConnectionProfile destination)
