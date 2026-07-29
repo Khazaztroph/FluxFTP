@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.Net.Security;
 using System.Net;
 using System.Net.Sockets;
@@ -17,6 +18,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     private StreamWriter? _writer;
     private ConnectionProfile? _profile;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private readonly List<(string Name, TimeSpan Elapsed)> _lastFxpStageTimings = [];
     private bool _protectData = true;
 
     public bool IsConnected { get; private set; }
@@ -24,6 +26,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     public int ConnectedPort { get; private set; }
     public IReadOnlySet<string> Capabilities { get; private set; } = new HashSet<string>();
     public string LastFxpNegotiation { get; private set; } = "None";
+    public IReadOnlyList<(string Name, TimeSpan Elapsed)> LastFxpStageTimings => _lastFxpStageTimings;
     public FxpProtectionMode FxpProtection => _profile?.EffectiveOptions.FxpProtection ?? FxpProtectionMode.AutoSecure;
     public bool UsesTlsControl => _profile?.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit;
 
@@ -124,6 +127,8 @@ public sealed class FtpRemoteSession : IRemoteSession
     {
         EnsureConnected(); destination.EnsureConnected();
         if (ReferenceEquals(this, destination)) throw new InvalidOperationException("FXP requires two different sessions.");
+        _lastFxpStageTimings.Clear();
+        LastFxpNegotiation = "None";
 
         var sourceProfile = _profile!;
         var destinationProfile = destination._profile!;
@@ -139,25 +144,19 @@ public sealed class FtpRemoteSession : IRemoteSession
         var secureFxp = !clearFxp;
         if (clearFxp)
         {
-            if (sourceProfile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit)
-            {
-                EnsureSuccess(await CommandAsync("PROT C", cancellationToken), 200);
-                _protectData = false;
-            }
-            if (destinationProfile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit)
-            {
-                EnsureSuccess(await destination.CommandAsync("PROT C", cancellationToken), 200);
-                destination._protectData = false;
-            }
+            await MeasureFxpStageAsync("PROT", async () => await Task.WhenAll(
+                SetClearDataProtectionAsync(cancellationToken),
+                destination.SetClearDataProtectionAsync(cancellationToken)));
         }
         var usedCpsv = false;
-        var relativePaths = await Task.WhenAll(
+        var relativePaths = await MeasureFxpStageAsync("CWD", async () => await Task.WhenAll(
             PrepareRelativeFilePathAsync(sourcePath, cancellationToken),
-            destination.PrepareRelativeFilePathAsync(destinationPath, cancellationToken));
+            destination.PrepareRelativeFilePathAsync(destinationPath, cancellationToken)));
         var sourceFile = relativePaths[0];
         var destinationFile = relativePaths[1];
-        await PrepareDataCommandAsync($"RETR {sourceFile}", cancellationToken);
-        await destination.PrepareDataCommandAsync($"STOR {destinationFile}", cancellationToken);
+        await MeasureFxpStageAsync("PRET", async () => await Task.WhenAll(
+            PrepareDataCommandAsync($"RETR {sourceFile}", cancellationToken),
+            destination.PrepareDataCommandAsync($"STOR {destinationFile}", cancellationToken)));
         if (reverseDataConnection)
         {
             if (!clearFxp) throw new NotSupportedException("Reversed FXP topology is currently available for clear FXP only.");
@@ -165,17 +164,18 @@ public sealed class FtpRemoteSession : IRemoteSession
             (string Host, int Port) sourceAdvertised;
             if (_profile!.EffectiveOptions.CeprSupported)
             {
-                sourcePassive = await CommandAsync("EPSV", cancellationToken);
+                sourcePassive = await MeasureFxpStageAsync("EPSV", () => CommandAsync("EPSV", cancellationToken));
                 EnsureSuccess(sourcePassive, 229);
                 sourceAdvertised = ParseExtendedPassiveEndpoint(sourcePassive.Message, _profile.Host, true);
             }
             else
             {
-                sourcePassive = await CommandAsync("PASV", cancellationToken);
+                sourcePassive = await MeasureFxpStageAsync("PASV", () => CommandAsync("PASV", cancellationToken));
                 EnsureSuccess(sourcePassive, 227);
                 sourceAdvertised = ParsePassiveEndpoint(sourcePassive.Message);
             }
-            await ConfigureActiveFxpEndpointAsync(destination, sourceAdvertised, cancellationToken);
+            await MeasureFxpStageAsync("PORT", () =>
+                ConfigureActiveFxpEndpointAsync(destination, sourceAdvertised, cancellationToken));
             LastFxpNegotiation = "PASV/PORT (reverse)";
             await StartAndCompleteFxpAsync(destination, sourceFile, destinationFile, cancellationToken);
             return;
@@ -184,21 +184,21 @@ public sealed class FtpRemoteSession : IRemoteSession
         (string Host, int Port) advertised;
         if (destination._profile!.EffectiveOptions.CeprSupported)
         {
-            passive = await destination.CommandAsync("EPSV", cancellationToken);
+            passive = await MeasureFxpStageAsync("EPSV", () => destination.CommandAsync("EPSV", cancellationToken));
             EnsureSuccess(passive, 229);
             advertised = ParseExtendedPassiveEndpoint(passive.Message, destination._profile.Host, true);
         }
         else if (secureFxp && destination.Capabilities.Contains("CPSV"))
         {
-            passive = await destination.CommandAsync("CPSV", cancellationToken);
+            passive = await MeasureFxpStageAsync("CPSV", () => destination.CommandAsync("CPSV", cancellationToken));
             usedCpsv = passive.Code == 227;
-            if (!usedCpsv) passive = await destination.CommandAsync("PASV", cancellationToken);
+            if (!usedCpsv) passive = await MeasureFxpStageAsync("PASV", () => destination.CommandAsync("PASV", cancellationToken));
             EnsureSuccess(passive, 227);
             advertised = ParsePassiveEndpoint(passive.Message);
         }
         else
         {
-            passive = await destination.CommandAsync("PASV", cancellationToken);
+            passive = await MeasureFxpStageAsync("PASV", () => destination.CommandAsync("PASV", cancellationToken));
             EnsureSuccess(passive, 227);
             advertised = ParsePassiveEndpoint(passive.Message);
         }
@@ -214,17 +214,20 @@ public sealed class FtpRemoteSession : IRemoteSession
         }
         else if (secureFxp)
         {
-            var secureClient = await CommandAsync("SSCN ON", cancellationToken);
+            var secureReplies = await MeasureFxpStageAsync("SSCN", async () => await Task.WhenAll(
+                CommandAsync("SSCN ON", cancellationToken),
+                destination.CommandAsync("SSCN OFF", cancellationToken)));
+            var secureClient = secureReplies[0];
             if (secureClient.Code is < 200 or >= 300)
                 throw new FtpCommandException(secureClient.Code, secureClient.Message);
-            var secureServer = await destination.CommandAsync("SSCN OFF", cancellationToken);
+            var secureServer = secureReplies[1];
             if (secureServer.Code is < 200 or >= 300)
                 throw new FtpCommandException(secureServer.Code, secureServer.Message);
             LastFxpNegotiation = "SSCN/PASV";
         }
         else LastFxpNegotiation = "PASV";
 
-        await ConfigureActiveFxpEndpointAsync(this, advertised, cancellationToken);
+        await MeasureFxpStageAsync("PORT", () => ConfigureActiveFxpEndpointAsync(this, advertised, cancellationToken));
         await StartAndCompleteFxpAsync(destination, sourceFile, destinationFile, cancellationToken);
     }
 
@@ -244,15 +247,37 @@ public sealed class FtpRemoteSession : IRemoteSession
         // Start both ends together. Some FTP servers do not emit 125/150 until
         // the peer has actually opened the negotiated data connection; awaiting
         // STOR before sending RETR can therefore deadlock until a 425 timeout.
-        var starts = await Task.WhenAll(
+        var starts = await MeasureFxpStageAsync("STOR/RETR", async () => await Task.WhenAll(
             destination.CommandAsync($"STOR {destinationPath}", cancellationToken),
-            CommandAsync($"RETR {sourcePath}", cancellationToken));
+            CommandAsync($"RETR {sourcePath}", cancellationToken)));
         EnsureSuccess(starts[0], 125, 150);
         EnsureSuccess(starts[1], 125, 150);
 
-        var completions = await Task.WhenAll(ReadResponseAsync(cancellationToken), destination.ReadResponseAsync(cancellationToken));
+        var completions = await MeasureFxpStageAsync("Data", async () => await Task.WhenAll(
+            ReadResponseAsync(cancellationToken), destination.ReadResponseAsync(cancellationToken)));
         EnsureSuccess(completions[0], 226, 250);
         EnsureSuccess(completions[1], 226, 250);
+    }
+
+    private async Task SetClearDataProtectionAsync(CancellationToken cancellationToken)
+    {
+        if (_profile?.Protocol is not (TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit)) return;
+        EnsureSuccess(await CommandAsync("PROT C", cancellationToken), 200);
+        _protectData = false;
+    }
+
+    private async Task MeasureFxpStageAsync(string name, Func<Task> operation)
+    {
+        var timer = Stopwatch.StartNew();
+        try { await operation(); }
+        finally { _lastFxpStageTimings.Add((name, timer.Elapsed)); }
+    }
+
+    private async Task<T> MeasureFxpStageAsync<T>(string name, Func<Task<T>> operation)
+    {
+        var timer = Stopwatch.StartNew();
+        try { return await operation(); }
+        finally { _lastFxpStageTimings.Add((name, timer.Elapsed)); }
     }
 
     private static async Task ConfigureActiveFxpEndpointAsync(FtpRemoteSession activeSession,

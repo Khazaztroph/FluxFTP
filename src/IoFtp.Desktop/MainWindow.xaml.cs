@@ -60,7 +60,8 @@ public partial class MainWindow : Window
     private readonly System.Windows.Threading.DispatcherTimer _legendTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly ExternalScriptRunner _scriptRunner = new();
     private readonly UpdateCheckService _updateCheckService = new();
-    private readonly HashSet<(Guid Source, Guid Destination)> _reverseFxpPairs = [];
+    private readonly FxpRouteStore _fxpRouteStore = new();
+    private readonly HashSet<(Guid Source, Guid Destination)> _reverseFxpPairs;
     private readonly ConcurrentDictionary<ConnectionProfile, ConcurrentBag<FtpRemoteSession>> _workerPool = new();
     private bool _exitRequested;
     private bool _workerPoolShuttingDown;
@@ -68,6 +69,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _reverseFxpPairs = _fxpRouteStore.LoadReverseRoutes();
         _settings = _settingsStore.Load();
         LogText.Text = $"FluxFTP {UpdateCheckService.CurrentVersion} started.{Environment.NewLine}No network connections have been opened.";
         _engine = new GlobalTransferEngine(new DesktopTransferExecutor(this));
@@ -988,6 +990,10 @@ public partial class MainWindow : Window
                     destinationSession.FxpProtection == FxpProtectionMode.Clear;
                 var directFxpAvailable = clearFxp || destinationSession.Capabilities.Contains("CPSV") ||
                     (sourceSession.Capabilities.Contains("SSCN") && destinationSession.Capabilities.Contains("SSCN"));
+                var pair = (Source: sourceProfile.Id, Destination: destinationProfile.Id);
+                var configuredReverse = PreferredReverseFxp(sourceProfile, destinationProfile);
+                var learnedReverse = configuredReverse is null && _reverseFxpPairs.Contains(pair);
+                var useReverse = clearFxp && (configuredReverse ?? learnedReverse);
                 if (directFxpAvailable)
                 {
                     try
@@ -995,9 +1001,6 @@ public partial class MainWindow : Window
                         LogText.AppendText($"{Environment.NewLine}Attempting direct {(clearFxp ? "clear" : "secure")} FXP: {entry.Name}");
                         var fxpStartedAt = DateTime.UtcNow;
                         using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        var pair = (Source: sourceProfile.Id, Destination: destinationProfile.Id);
-                        var configuredReverse = PreferredReverseFxp(sourceProfile, destinationProfile);
-                        var useReverse = clearFxp && (configuredReverse ?? _reverseFxpPairs.Contains(pair));
                         var monitor = MonitorFxpAsync(destinationProfile, entry, monitorCancellation.Token);
                         try
                         {
@@ -1016,8 +1019,8 @@ public partial class MainWindow : Window
                                     LogText.AppendText($"{Environment.NewLine}Standard clear FXP timed out; retrying with source PASV and destination PORT: {entry.Name}");
                                     await sourceSession.RetryFxpWithReversedTopologyAsync(
                                         destinationSession, entry.Source, entry.Destination, cancellationToken);
-                                    _reverseFxpPairs.Add(pair);
-                                    LogText.AppendText($"{Environment.NewLine}Remembered reverse FXP route for {sourceProfile.Name} → {destinationProfile.Name}.");
+                                    if (_reverseFxpPairs.Add(pair)) _fxpRouteStore.SaveReverseRoutes(_reverseFxpPairs);
+                                    LogText.AppendText($"{Environment.NewLine}Remembered reverse FXP route permanently for {sourceProfile.Name} → {destinationProfile.Name}.");
                                 }
                             }
                         }
@@ -1034,6 +1037,7 @@ public partial class MainWindow : Window
                         var elapsed = Math.Max((DateTime.UtcNow - fxpStartedAt).TotalSeconds, 0.001);
                         if (entry.SpeedBytesPerSecond <= 0 && entry.TotalBytes > 0)
                             entry.SpeedBytesPerSecond = (long)(entry.TotalBytes / elapsed);
+                        AppendFxpTimings(sourceSession);
                         LogText.AppendText($"{Environment.NewLine}Direct FXP completed via {sourceSession.LastFxpNegotiation}: {entry.Name}");
                         entry.State = "Completed";
                         await RunScriptsAsync("AfterTransfer", TransferScriptVariables(entry, "Completed"), true);
@@ -1046,6 +1050,13 @@ public partial class MainWindow : Window
                     }
                     catch (Exception fxpException)
                     {
+                        if (learnedReverse && (fxpException is OperationCanceledException or FtpCommandException { StatusCode: 425 }) &&
+                            _reverseFxpPairs.Remove(pair))
+                        {
+                            _fxpRouteStore.SaveReverseRoutes(_reverseFxpPairs);
+                            LogText.AppendText($"{Environment.NewLine}Removed stale learned reverse route for {sourceProfile.Name} → {destinationProfile.Name}.");
+                        }
+                        AppendFxpTimings(sourceSession);
                         AppendFxpFailureDiagnostic(entry, sourceProfile, destinationProfile, sourceSession,
                             destinationSession, clearFxp, PreferredReverseFxp(sourceProfile, destinationProfile));
                         LogText.AppendText($"{Environment.NewLine}Direct FXP rejected ({FriendlyMessage(fxpException)}). Reconnecting for client relay…");
@@ -1118,6 +1129,14 @@ public partial class MainWindow : Window
             await ReleaseWorkerAsync(apiFxpDestination, apiFxpDestinationWorker, reuseWorkers);
             SaveQueue(); UpdateQueueStatus(); LogText.ScrollToEnd();
         }
+    }
+
+    private void AppendFxpTimings(FtpRemoteSession session)
+    {
+        if (session.LastFxpStageTimings.Count == 0) return;
+        var values = session.LastFxpStageTimings.Select(stage =>
+            $"{stage.Name} {(stage.Elapsed.TotalSeconds >= 1 ? $"{stage.Elapsed.TotalSeconds:0.00}s" : $"{stage.Elapsed.TotalMilliseconds:0}ms")}");
+        LogText.AppendText($"{Environment.NewLine}FXP timings: {string.Join(" | ", values)}");
     }
 
     private void AppendFxpFailureDiagnostic(QueueEntryView entry, ConnectionProfile sourceProfile,

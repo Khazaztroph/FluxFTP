@@ -2,6 +2,18 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.24 — 2026-07-30
+
+### Added
+
+- Learned reverse PASV/PORT routes are persisted per source/destination site pair and restored after FluxFTP restarts.
+- Compact FXP phase timings now show CWD, PRET, PROT, PASV/EPSV/CPSV, PORT, SSCN, STOR/RETR acceptance and data-transfer duration.
+
+### Changed
+
+- Independent control commands on the source and destination sessions are issued concurrently where protocol ordering permits.
+- A persisted reverse route is removed automatically when it later fails with a timeout or FTP `425`.
+
 ## 1.0.23 — 2026-07-30
 
 ### Changed
