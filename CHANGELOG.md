@@ -6,6 +6,7 @@ All notable FluxFTP changes are documented here.
 
 ### Fixed
 
+- Self-contained Windows releases once again include the native WPF libraries required before the main window can open.
 - `SITE PRE` now runs from the selected release's parent directory, matching ioFTPD's expected working directory.
 - Delayed ioFTPD CWD-script replies are skipped so the actual PRE result is displayed and the control channel remains synchronized.
 - IRC formatting and other invisible control characters are removed from commands before they are sent.
