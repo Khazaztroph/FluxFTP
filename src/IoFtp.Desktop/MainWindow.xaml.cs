@@ -62,7 +62,8 @@ public partial class MainWindow : Window
     private readonly UpdateCheckService _updateCheckService = new();
     private readonly FxpRouteStore _fxpRouteStore = new();
     private readonly HashSet<(Guid Source, Guid Destination)> _reverseFxpPairs;
-    private readonly ConcurrentDictionary<ConnectionProfile, ConcurrentBag<FtpRemoteSession>> _workerPool = new();
+    private readonly ConcurrentDictionary<ConnectionProfile, ConcurrentBag<PooledWorker>> _workerPool = new();
+    private static readonly TimeSpan WorkerHealthCheckInterval = TimeSpan.FromSeconds(30);
     private bool _exitRequested;
     private bool _workerPoolShuttingDown;
     private int _legendOffset;
@@ -738,6 +739,7 @@ public partial class MainWindow : Window
                     else if (!ShouldSkip(child.Name)) { files.Add((child, target)); fileCount++; }
                 }
             }
+            await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
             foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, StringComparer.OrdinalIgnoreCase))
                 Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0));
             LogText.AppendText($"{Environment.NewLine}Queued remote folder {sourceRoot}: {fileCount} files.");
@@ -784,6 +786,7 @@ public partial class MainWindow : Window
                     else if (!ShouldSkip(child.Name)) files.Add((child, target));
                 }
             }
+            await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
             foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, StringComparer.OrdinalIgnoreCase))
                 Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0));
             LogText.AppendText($"{Environment.NewLine}Queued remote folder for local download {sourceRoot}: {files.Count} files.");
@@ -821,6 +824,7 @@ public partial class MainWindow : Window
                     else if (!ShouldSkip(name)) files.Add((new FileInfo(child), target));
                 }
             }
+            await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
             foreach (var file in files.OrderBy(file => PriorityRank(file.File.Name)).ThenBy(file => file.File.Name, StringComparer.OrdinalIgnoreCase))
                 Schedule(AddQueue(file.File.Name, file.File.FullName, file.Destination, direction, file.File.Length));
             LogText.AppendText($"{Environment.NewLine}Queued local folder {sourceRoot}: {files.Count} files.");
@@ -1336,10 +1340,12 @@ public partial class MainWindow : Window
     private async Task<FtpRemoteSession> RentWorkerAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
         await DisposeStalePooledWorkersAsync(profile);
-        var pool = _workerPool.GetOrAdd(profile, _ => new ConcurrentBag<FtpRemoteSession>());
-        while (pool.TryTake(out var session))
+        var pool = _workerPool.GetOrAdd(profile, _ => new ConcurrentBag<PooledWorker>());
+        while (pool.TryTake(out var pooled))
         {
+            var session = pooled.Session;
             if (!session.IsConnected) { await session.DisposeAsync(); continue; }
+            if (DateTimeOffset.UtcNow - pooled.ReturnedAt < WorkerHealthCheckInterval) return session;
             try
             {
                 var response = await session.ExecuteCommandAsync("NOOP", cancellationToken);
@@ -1356,6 +1362,53 @@ public partial class MainWindow : Window
         return await CreateWorkerAsync(profile, cancellationToken);
     }
 
+    private async Task WarmWorkersForDirectionAsync(TransferDirection direction, int fileCount, CancellationToken cancellationToken)
+    {
+        if (fileCount <= 0 || _workerPoolShuttingDown) return;
+        var profiles = new ProfileStore().Load();
+        var requested = new Dictionary<ConnectionProfile, int>();
+
+        void Add(Guid? profileId, bool download)
+        {
+            if (profileId is null) return;
+            var profile = profiles.FirstOrDefault(item => item.Id == profileId);
+            if (profile is null) return;
+            profile = ApplyGlobalProxy(profile);
+            var options = profile.EffectiveOptions;
+            var directional = download ? options.MaxDownloadSlots : options.MaxUploadSlots;
+            var desired = Math.Min(fileCount, Math.Min(options.MaxSlots, directional));
+            if (desired > 0) requested[profile] = Math.Max(requested.GetValueOrDefault(profile), desired);
+        }
+
+        var sites = SitesFor(direction);
+        Add(sites.Source, true);
+        Add(sites.Destination, false);
+        if (requested.Count == 0) return;
+
+        var started = DateTime.UtcNow;
+        await Task.WhenAll(requested.Select(async pair =>
+        {
+            await DisposeStalePooledWorkersAsync(pair.Key);
+            var pool = _workerPool.GetOrAdd(pair.Key, _ => new ConcurrentBag<PooledWorker>());
+            var missing = Math.Max(0, pair.Value - pool.Count);
+            if (missing == 0) return;
+            var sessions = await Task.WhenAll(Enumerable.Range(0, missing).Select(async _ =>
+            {
+                try { return await CreateWorkerAsync(pair.Key, cancellationToken); }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    LogText.Dispatcher.Invoke(() => LogText.AppendText(
+                        $"{Environment.NewLine}Could not prewarm a slot for {pair.Key.Name}: {FriendlyMessage(exception)}"));
+                    return null;
+                }
+            }));
+            foreach (var session in sessions)
+                if (session is not null) pool.Add(new PooledWorker(session, DateTimeOffset.UtcNow));
+        }));
+        var elapsed = DateTime.UtcNow - started;
+        LogText.AppendText($"{Environment.NewLine}Transfer slots ready in {elapsed.TotalSeconds:0.00}s.");
+    }
+
     private async Task ReleaseWorkerAsync(ConnectionProfile? profile, FtpRemoteSession? session, bool reusable)
     {
         if (session is null) return;
@@ -1364,7 +1417,8 @@ public partial class MainWindow : Window
             await session.DisposeAsync();
             return;
         }
-        _workerPool.GetOrAdd(profile, _ => new ConcurrentBag<FtpRemoteSession>()).Add(session);
+        _workerPool.GetOrAdd(profile, _ => new ConcurrentBag<PooledWorker>())
+            .Add(new PooledWorker(session, DateTimeOffset.UtcNow));
     }
 
     private async Task DisposePooledWorkersAsync(Guid? profileId = null)
@@ -1373,7 +1427,7 @@ public partial class MainWindow : Window
         foreach (var pair in pools)
         {
             if (!_workerPool.TryRemove(pair.Key, out var pool)) continue;
-            while (pool.TryTake(out var session)) await session.DisposeAsync();
+            while (pool.TryTake(out var pooled)) await pooled.Session.DisposeAsync();
         }
     }
 
@@ -1384,9 +1438,11 @@ public partial class MainWindow : Window
         foreach (var profile in staleProfiles)
         {
             if (!_workerPool.TryRemove(profile, out var pool)) continue;
-            while (pool.TryTake(out var session)) await session.DisposeAsync();
+            while (pool.TryTake(out var pooled)) await pooled.Session.DisposeAsync();
         }
     }
+
+    private sealed record PooledWorker(FtpRemoteSession Session, DateTimeOffset ReturnedAt);
 
     private void PauseTransfer_Click(object sender, RoutedEventArgs e)
     {
