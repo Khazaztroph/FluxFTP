@@ -13,6 +13,7 @@ All notable FluxFTP changes are documented here.
 
 - The default main-window size is reduced to fit smaller laptop displays while saved window layouts continue to be restored.
 - About now reflects the current FTP, FTPS, FXP, automation, import and ioFTPD feature set.
+- The application icon now uses a text-free modern server-and-gear symbol that remains clear at small Windows icon sizes.
 
 ### Fixed
 
