@@ -2,6 +2,14 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.23 — 2026-07-30
+
+### Changed
+
+- Successful transfer sessions are retained as reusable site workers instead of logging out after every file.
+- Reused workers are health-checked with `NOOP`; disconnected, failed, cancelled or stale-profile sessions are discarded safely.
+- Idle worker pools are closed when a site disconnects, its profile changes or FluxFTP exits.
+
 ## 1.0.22 — 2026-07-30
 
 ### Fixed

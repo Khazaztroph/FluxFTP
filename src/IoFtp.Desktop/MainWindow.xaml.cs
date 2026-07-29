@@ -1,4 +1,5 @@
 using System.IO;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -60,7 +61,9 @@ public partial class MainWindow : Window
     private readonly ExternalScriptRunner _scriptRunner = new();
     private readonly UpdateCheckService _updateCheckService = new();
     private readonly HashSet<(Guid Source, Guid Destination)> _reverseFxpPairs = [];
+    private readonly ConcurrentDictionary<ConnectionProfile, ConcurrentBag<FtpRemoteSession>> _workerPool = new();
     private bool _exitRequested;
+    private bool _workerPoolShuttingDown;
     private int _legendOffset;
     public MainWindow()
     {
@@ -151,6 +154,7 @@ public partial class MainWindow : Window
         LogText.AppendText($"{Environment.NewLine}Connecting with {TransferProtocolNames.Display(profile.Protocol)} to {profile.Host}:{profile.Port}…");
         try
         {
+            await DisposePooledWorkersAsync(profile.Id);
             var session = left ? _leftRemoteSession : _remoteSession;
             if (session is not null) await session.DisposeAsync();
             session = new FtpRemoteSession();
@@ -244,6 +248,7 @@ public partial class MainWindow : Window
         if (_leftProfile is not null) await RunScriptsAsync("OnDisconnect", new() { ["site"] = _leftProfile.Name, ["host"] = _leftProfile.Host, ["path"] = _leftRemoteDirectory, ["status"] = "Disconnected" }, true);
         if (_leftRemoteSession is not null) { await _leftRemoteSession.DisposeAsync(); _leftRemoteSession = null; }
         if (_leftProfile is not null) _engine.DisconnectSite(_leftProfile.Id);
+        if (_leftProfile is not null) await DisposePooledWorkersAsync(_leftProfile.Id);
         LeftQuickSites.SelectedIndex = 0;
         LocalList.ItemsSource = null; _leftRemoteDirectory = "/"; LocalPath.Text = "/";
         LeftSiteTitle.Text = _leftProfile is null ? "REMOTE SITE" : $"REMOTE — {_leftProfile.Name.ToUpperInvariant()} (DISCONNECTED)";
@@ -256,6 +261,7 @@ public partial class MainWindow : Window
         if (_rightProfile is not null) await RunScriptsAsync("OnDisconnect", new() { ["site"] = _rightProfile.Name, ["host"] = _rightProfile.Host, ["path"] = _remoteDirectory, ["status"] = "Disconnected" }, true);
         if (_remoteSession is not null) { await _remoteSession.DisposeAsync(); _remoteSession = null; }
         if (_rightProfile is not null) _engine.DisconnectSite(_rightProfile.Id);
+        if (_rightProfile is not null) await DisposePooledWorkersAsync(_rightProfile.Id);
         RightQuickSites.SelectedIndex = 0;
         RemoteList.ItemsSource = null; _remoteDirectory = "/"; RemotePath.Text = "/";
         RemoteSiteTitle.Text = _rightProfile is null ? "REMOTE SITE" : $"REMOTE — {_rightProfile.Name.ToUpperInvariant()} (DISCONNECTED)";
@@ -919,23 +925,27 @@ public partial class MainWindow : Window
         var apiProfile = entry.Direction == TransferDirection.ApiDownload ? profiles.FirstOrDefault(profile => profile.Id == entry.SourceProfileId) : null;
         var apiFxpSource = entry.Direction == TransferDirection.ApiFxp ? profiles.FirstOrDefault(profile => profile.Id == entry.SourceProfileId) : null;
         var apiFxpDestination = entry.Direction == TransferDirection.ApiFxp ? profiles.FirstOrDefault(profile => profile.Id == entry.DestinationProfileId) : null;
+        if (apiProfile is not null) apiProfile = ApplyGlobalProxy(apiProfile);
+        if (apiFxpSource is not null) apiFxpSource = ApplyGlobalProxy(apiFxpSource);
+        if (apiFxpDestination is not null) apiFxpDestination = ApplyGlobalProxy(apiFxpDestination);
         if ((needsLeft && leftProfile is null) || (needsRight && rightProfile is null) || (entry.Direction == TransferDirection.ApiDownload && apiProfile is null) ||
             (entry.Direction == TransferDirection.ApiFxp && (apiFxpSource is null || apiFxpDestination is null)))
             throw new InvalidOperationException("A required site is not connected.");
         FtpRemoteSession? leftWorker = null; FtpRemoteSession? rightWorker = null;
         FtpRemoteSession? apiWorker = null;
         FtpRemoteSession? apiFxpSourceWorker = null; FtpRemoteSession? apiFxpDestinationWorker = null;
+        var reuseWorkers = false;
         try
         {
             entry.State = "Transferring";
             entry.StartedAt ??= DateTimeOffset.Now;
             SaveQueue();
             await RunScriptsAsync("BeforeTransfer", TransferScriptVariables(entry, "Starting"), false);
-            if (needsLeft) leftWorker = await CreateWorkerAsync(leftProfile!, cancellationToken);
-            if (needsRight) rightWorker = await CreateWorkerAsync(rightProfile!, cancellationToken);
-            if (apiProfile is not null) apiWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiProfile), cancellationToken);
-            if (apiFxpSource is not null) apiFxpSourceWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpSource), cancellationToken);
-            if (apiFxpDestination is not null) apiFxpDestinationWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpDestination), cancellationToken);
+            if (needsLeft) leftWorker = await RentWorkerAsync(leftProfile!, cancellationToken);
+            if (needsRight) rightWorker = await RentWorkerAsync(rightProfile!, cancellationToken);
+            if (apiProfile is not null) apiWorker = await RentWorkerAsync(apiProfile, cancellationToken);
+            if (apiFxpSource is not null) apiFxpSourceWorker = await RentWorkerAsync(apiFxpSource, cancellationToken);
+            if (apiFxpDestination is not null) apiFxpDestinationWorker = await RentWorkerAsync(apiFxpDestination, cancellationToken);
             var progress = new Progress<long>(bytes =>
             {
                 entry.BytesTransferred = bytes;
@@ -1027,6 +1037,7 @@ public partial class MainWindow : Window
                         LogText.AppendText($"{Environment.NewLine}Direct FXP completed via {sourceSession.LastFxpNegotiation}: {entry.Name}");
                         entry.State = "Completed";
                         await RunScriptsAsync("AfterTransfer", TransferScriptVariables(entry, "Completed"), true);
+                        reuseWorkers = true;
                         return;
                     }
                     catch (FtpCommandException exception) when (exception.StatusCode == 553 && DestinationUsesXdupe(entry))
@@ -1042,8 +1053,8 @@ public partial class MainWindow : Window
                         {
                             if (apiFxpSourceWorker is not null) await apiFxpSourceWorker.DisposeAsync();
                             if (apiFxpDestinationWorker is not null) await apiFxpDestinationWorker.DisposeAsync();
-                            apiFxpSourceWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpSource!), cancellationToken);
-                            apiFxpDestinationWorker = await CreateWorkerAsync(ApplyGlobalProxy(apiFxpDestination!), cancellationToken);
+                            apiFxpSourceWorker = await CreateWorkerAsync(apiFxpSource!, cancellationToken);
+                            apiFxpDestinationWorker = await CreateWorkerAsync(apiFxpDestination!, cancellationToken);
                             sourceSession = apiFxpSourceWorker; destinationSession = apiFxpDestinationWorker;
                         }
                         else
@@ -1073,6 +1084,7 @@ public partial class MainWindow : Window
             entry.State = "Completed";
             LogText.AppendText($"{Environment.NewLine}Transfer completed: {entry.Name}");
             await RunScriptsAsync("AfterTransfer", TransferScriptVariables(entry, "Completed"), true);
+            reuseWorkers = true;
         }
         catch (FtpCommandException exception) when (exception.StatusCode == 553 && DestinationUsesXdupe(entry))
         {
@@ -1081,6 +1093,7 @@ public partial class MainWindow : Window
             entry.State = "Completed";
             LogText.AppendText($"{Environment.NewLine}XDUPE skipped existing remote file: {entry.Name}");
             await RunScriptsAsync("AfterTransfer", TransferScriptVariables(entry, "XDUPE skipped"), true);
+            reuseWorkers = true;
             return;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1098,11 +1111,11 @@ public partial class MainWindow : Window
         }
         finally
         {
-            if (leftWorker is not null) await leftWorker.DisposeAsync();
-            if (rightWorker is not null) await rightWorker.DisposeAsync();
-            if (apiWorker is not null) await apiWorker.DisposeAsync();
-            if (apiFxpSourceWorker is not null) await apiFxpSourceWorker.DisposeAsync();
-            if (apiFxpDestinationWorker is not null) await apiFxpDestinationWorker.DisposeAsync();
+            await ReleaseWorkerAsync(leftProfile, leftWorker, reuseWorkers);
+            await ReleaseWorkerAsync(rightProfile, rightWorker, reuseWorkers);
+            await ReleaseWorkerAsync(apiProfile, apiWorker, reuseWorkers);
+            await ReleaseWorkerAsync(apiFxpSource, apiFxpSourceWorker, reuseWorkers);
+            await ReleaseWorkerAsync(apiFxpDestination, apiFxpDestinationWorker, reuseWorkers);
             SaveQueue(); UpdateQueueStatus(); LogText.ScrollToEnd();
         }
     }
@@ -1301,6 +1314,61 @@ public partial class MainWindow : Window
         catch { await session.DisposeAsync(); throw; }
     }
 
+    private async Task<FtpRemoteSession> RentWorkerAsync(ConnectionProfile profile, CancellationToken cancellationToken)
+    {
+        await DisposeStalePooledWorkersAsync(profile);
+        var pool = _workerPool.GetOrAdd(profile, _ => new ConcurrentBag<FtpRemoteSession>());
+        while (pool.TryTake(out var session))
+        {
+            if (!session.IsConnected) { await session.DisposeAsync(); continue; }
+            try
+            {
+                var response = await session.ExecuteCommandAsync("NOOP", cancellationToken);
+                if (response.StatusCode is >= 200 and < 300) return session;
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
+            catch
+            {
+                await session.DisposeAsync();
+                throw;
+            }
+            await session.DisposeAsync();
+        }
+        return await CreateWorkerAsync(profile, cancellationToken);
+    }
+
+    private async Task ReleaseWorkerAsync(ConnectionProfile? profile, FtpRemoteSession? session, bool reusable)
+    {
+        if (session is null) return;
+        if (!reusable || !session.IsConnected || _workerPoolShuttingDown || profile is null)
+        {
+            await session.DisposeAsync();
+            return;
+        }
+        _workerPool.GetOrAdd(profile, _ => new ConcurrentBag<FtpRemoteSession>()).Add(session);
+    }
+
+    private async Task DisposePooledWorkersAsync(Guid? profileId = null)
+    {
+        var pools = _workerPool.Where(pair => profileId is null || pair.Key.Id == profileId).ToList();
+        foreach (var pair in pools)
+        {
+            if (!_workerPool.TryRemove(pair.Key, out var pool)) continue;
+            while (pool.TryTake(out var session)) await session.DisposeAsync();
+        }
+    }
+
+    private async Task DisposeStalePooledWorkersAsync(ConnectionProfile currentProfile)
+    {
+        var staleProfiles = _workerPool.Keys
+            .Where(profile => profile.Id == currentProfile.Id && profile != currentProfile).ToList();
+        foreach (var profile in staleProfiles)
+        {
+            if (!_workerPool.TryRemove(profile, out var pool)) continue;
+            while (pool.TryTake(out var session)) await session.DisposeAsync();
+        }
+    }
+
     private void PauseTransfer_Click(object sender, RoutedEventArgs e)
     {
         if (QueueList.SelectedItem is QueueEntryView entry) _engine.Pause(entry.Id);
@@ -1427,7 +1495,9 @@ public partial class MainWindow : Window
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         if (_apiServer is not null) await _apiServer.DisposeAsync();
+        _workerPoolShuttingDown = true;
         await _engine.DisposeAsync();
+        await DisposePooledWorkersAsync();
         if (_remoteSession is not null) await _remoteSession.DisposeAsync();
         if (_leftRemoteSession is not null) await _leftRemoteSession.DisposeAsync();
         base.OnClosed(e);
