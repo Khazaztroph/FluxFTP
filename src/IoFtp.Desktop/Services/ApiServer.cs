@@ -373,6 +373,7 @@ internal sealed class ApiServer : IAsyncDisposable
             FxpDataRole.Active => "PORT",
             _ => "AUTO"
         },
+        broken_pasv = profile.EffectiveOptions.FxpDataRole == FxpDataRole.Active,
         except_source_sites = SplitList(profile.EffectiveOptions.BlockTransfersFrom), except_target_sites = SplitList(profile.EffectiveOptions.BlockTransfersTo),
         affils = SplitList(profile.EffectiveOptions.Affils), force_binary = profile.EffectiveOptions.ForceBinaryMode,
         force_binary_mode = profile.EffectiveOptions.ForceBinaryMode,
@@ -389,7 +390,11 @@ internal sealed class ApiServer : IAsyncDisposable
             BlockTransfersTo: string.Join(' ', request.ExceptTargetSites ?? []), ForceBinaryMode: request.ForceBinary ?? true,
             Affils: string.Join(' ', request.Affils ?? []));
         if (request.ForceBinaryMode is not null) options = options with { ForceBinaryMode = request.ForceBinaryMode.Value };
-        options = options with { FxpProtection = ParseFxpProtection(request.FxpProtection), FxpDataRole = ParseFxpDataRole(request.FxpDataRole) };
+        options = options with
+        {
+            FxpProtection = ParseFxpProtection(request.FxpProtection),
+            FxpDataRole = request.BrokenPasv == true ? FxpDataRole.Active : ParseFxpDataRole(request.FxpDataRole)
+        };
         return new(Guid.NewGuid(), request.Name!, primary.Host, primary.Port, request.User ?? "anonymous", protocol,
             request.Password ?? "", ListingMode: ParseListingMode(request.ListCommand),
             Options: options, AlternateAddresses: string.Join(' ', alternates), Description: request.Description ?? "");
@@ -410,7 +415,11 @@ internal sealed class ApiServer : IAsyncDisposable
             CeprSupported = request.CeprSupported ?? request.Cepr ?? profile.EffectiveOptions.CeprSupported,
             UseXdupe = request.UseXdupe ?? request.Xdupe ?? profile.EffectiveOptions.UseXdupe,
             FxpProtection = request.FxpProtection is null ? profile.EffectiveOptions.FxpProtection : ParseFxpProtection(request.FxpProtection),
-            FxpDataRole = request.FxpDataRole is null ? profile.EffectiveOptions.FxpDataRole : ParseFxpDataRole(request.FxpDataRole),
+            FxpDataRole = request.BrokenPasv == true
+                ? FxpDataRole.Active
+                : request.BrokenPasv == false && request.FxpDataRole is null
+                    ? FxpDataRole.Auto
+                    : request.FxpDataRole is null ? profile.EffectiveOptions.FxpDataRole : ParseFxpDataRole(request.FxpDataRole),
             BlockTransfersFrom = request.ExceptSourceSites is null ? profile.EffectiveOptions.BlockTransfersFrom : string.Join(' ', request.ExceptSourceSites),
             BlockTransfersTo = request.ExceptTargetSites is null ? profile.EffectiveOptions.BlockTransfersTo : string.Join(' ', request.ExceptTargetSites),
             Affils = request.Affils is null ? profile.EffectiveOptions.Affils : string.Join(' ', request.Affils),
@@ -536,6 +545,7 @@ internal sealed class ApiServer : IAsyncDisposable
         bool? Xdupe = null,
         [property: JsonPropertyName("fxp_protection")] string? FxpProtection = null,
         [property: JsonPropertyName("fxp_data_role")] string? FxpDataRole = null,
+        [property: JsonPropertyName("broken_pasv")] bool? BrokenPasv = null,
         [property: JsonPropertyName("except_source_sites")] List<string>? ExceptSourceSites = null,
         [property: JsonPropertyName("except_target_sites")] List<string>? ExceptTargetSites = null,
         List<string>? Affils = null,

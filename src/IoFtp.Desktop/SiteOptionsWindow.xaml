@@ -33,7 +33,7 @@
                 <TabItem Header="Connection behavior">
                     <Grid Margin="16">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="190"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <TextBlock Text="Base path" VerticalAlignment="Center"/><TextBox x:Name="BasePathBox" Grid.Column="1" Margin="0,4"/>
                         <TextBlock Grid.Row="1" Text="Max idle time (seconds)" VerticalAlignment="Center"/><TextBox x:Name="IdleBox" Grid.Row="1" Grid.Column="1" Margin="0,4"/>
                         <CheckBox x:Name="StayLoggedInBox" Grid.Row="2" Grid.ColumnSpan="2" Content="Stay logged in for browsing" Margin="0,8,0,2"/>
@@ -47,7 +47,8 @@
                         <ComboBox x:Name="FxpProtectionBox" Grid.Row="9" Grid.Column="1" Margin="0,4" ToolTip="Auto always uses TLS-protected FXP. Clear explicitly permits unencrypted server-to-server data for incompatible sites."/>
                         <TextBlock Grid.Row="10" Text="FXP data role" VerticalAlignment="Center"/>
                         <ComboBox x:Name="FxpDataRoleBox" Grid.Row="10" Grid.Column="1" Margin="0,4" ToolTip="Auto detects and remembers the working route. PASV makes this site accept the data connection. PORT makes this site open the data connection; useful when the site is behind CGNAT."/>
-                        <TextBlock Grid.Row="11" Grid.ColumnSpan="2" Margin="0,16,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Text="Clear FXP affects server-to-server data only. Control logins remain protected by AUTH TLS. Directory listing mode and certificate policy are configured in Connection details."/>
+                        <CheckBox x:Name="BrokenPasvBox" Grid.Row="11" Grid.ColumnSpan="2" Content="Broken PASV — always use this site as the PORT/active side" Margin="0,6,0,2" Click="BrokenPasvBox_Click" ToolTip="cbftp-compatible Broken PASV setting. FluxFTP chooses the opposite site for PASV immediately instead of waiting for a 425 timeout."/>
+                        <TextBlock Grid.Row="12" Grid.ColumnSpan="2" Margin="0,12,0,0" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Text="Clear FXP affects server-to-server data only. Control logins remain protected by AUTH TLS. Directory listing mode and certificate policy are configured in Connection details."/>
                     </Grid>
                 </TabItem>
             </TabControl>

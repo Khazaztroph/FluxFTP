@@ -9,6 +9,7 @@ All notable FluxFTP changes are documented here.
 - Multi-file transfers prewarm the required source/download and destination/upload workers in parallel before queue execution begins.
 - Recently returned workers are reused immediately; `NOOP` health checks are now reserved for workers that have been idle for at least 30 seconds.
 - Worker prewarming respects each site's login and directional upload/download slot limits and reports its preparation time in the connection log.
+- Site Options now includes a cbftp-compatible `Broken PASV` checkbox that selects the site's PORT/active role immediately, without waiting for an initial `425` timeout; the setting is also exposed as `broken_pasv` through the API.
 
 ## 1.0.24 — 2026-07-30
 

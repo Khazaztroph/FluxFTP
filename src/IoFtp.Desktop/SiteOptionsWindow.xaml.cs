@@ -37,8 +37,16 @@ public partial class SiteOptionsWindow : Window
         FxpDataRoleBox.DisplayMemberPath = nameof(FxpDataRoleChoice.Label);
         FxpDataRoleBox.SelectedItem = ((FxpDataRoleChoice[])FxpDataRoleBox.ItemsSource)
             .First(item => item.Role == options.FxpDataRole);
+        BrokenPasvBox.IsChecked = options.FxpDataRole == FxpDataRole.Active;
         BlockFromBox.Text = options.BlockTransfersFrom; BlockToBox.Text = options.BlockTransfersTo;
         AffilsBox.Text = options.Affils;
+    }
+
+    private void BrokenPasvBox_Click(object sender, RoutedEventArgs e)
+    {
+        var role = BrokenPasvBox.IsChecked == true ? FxpDataRole.Active : FxpDataRole.Auto;
+        FxpDataRoleBox.SelectedItem = ((FxpDataRoleChoice[])FxpDataRoleBox.ItemsSource)
+            .First(item => item.Role == role);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -54,7 +62,9 @@ public partial class SiteOptionsWindow : Window
             TlsTransfersBox.IsChecked == true, BinaryModeBox.IsChecked == true, idle, BlockFromBox.Text.Trim(), BlockToBox.Text.Trim(), SecureListingsBox.IsChecked == true,
             NeedsPretBox.IsChecked == true, CeprBox.IsChecked == true, XdupeBox.IsChecked == true, AffilsBox.Text.Trim(),
             (FxpProtectionBox.SelectedItem as FxpProtectionChoice)?.Mode ?? FxpProtectionMode.AutoSecure,
-            (FxpDataRoleBox.SelectedItem as FxpDataRoleChoice)?.Role ?? FxpDataRole.Auto);
+            BrokenPasvBox.IsChecked == true
+                ? FxpDataRole.Active
+                : (FxpDataRoleBox.SelectedItem as FxpDataRoleChoice)?.Role ?? FxpDataRole.Auto);
         DialogResult = true;
     }
 
