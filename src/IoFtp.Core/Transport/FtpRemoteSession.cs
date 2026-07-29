@@ -151,8 +151,13 @@ public sealed class FtpRemoteSession : IRemoteSession
             }
         }
         var usedCpsv = false;
-        await PrepareDataCommandAsync($"RETR {sourcePath}", cancellationToken);
-        await destination.PrepareDataCommandAsync($"STOR {destinationPath}", cancellationToken);
+        var relativePaths = await Task.WhenAll(
+            PrepareRelativeFilePathAsync(sourcePath, cancellationToken),
+            destination.PrepareRelativeFilePathAsync(destinationPath, cancellationToken));
+        var sourceFile = relativePaths[0];
+        var destinationFile = relativePaths[1];
+        await PrepareDataCommandAsync($"RETR {sourceFile}", cancellationToken);
+        await destination.PrepareDataCommandAsync($"STOR {destinationFile}", cancellationToken);
         if (reverseDataConnection)
         {
             if (!clearFxp) throw new NotSupportedException("Reversed FXP topology is currently available for clear FXP only.");
@@ -172,7 +177,7 @@ public sealed class FtpRemoteSession : IRemoteSession
             }
             await ConfigureActiveFxpEndpointAsync(destination, sourceAdvertised, cancellationToken);
             LastFxpNegotiation = "PASV/PORT (reverse)";
-            await StartAndCompleteFxpAsync(destination, sourcePath, destinationPath, cancellationToken);
+            await StartAndCompleteFxpAsync(destination, sourceFile, destinationFile, cancellationToken);
             return;
         }
         FtpResponse passive;
@@ -220,7 +225,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         else LastFxpNegotiation = "PASV";
 
         await ConfigureActiveFxpEndpointAsync(this, advertised, cancellationToken);
-        await StartAndCompleteFxpAsync(destination, sourcePath, destinationPath, cancellationToken);
+        await StartAndCompleteFxpAsync(destination, sourceFile, destinationFile, cancellationToken);
     }
 
     public async Task RetryFxpWithReversedTopologyAsync(FtpRemoteSession destination, string sourcePath,
@@ -487,6 +492,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     private async Task TransferAsync(string command, long offset, Func<Stream, Task> transfer, CancellationToken cancellationToken)
     {
         EnsureConnected();
+        command = await PrepareRelativeTransferCommandAsync(command, cancellationToken);
         TcpClient? dataClient = null;
         try
         {
@@ -521,6 +527,26 @@ public sealed class FtpRemoteSession : IRemoteSession
         // closes TLS immediately after the last byte. A successful 226/250
         // control reply confirms that the transfer itself completed.
         if (dataError is not null && completion.Code is not (226 or 250)) throw dataError;
+    }
+
+    private async Task<string> PrepareRelativeTransferCommandAsync(string command, CancellationToken cancellationToken)
+    {
+        var parts = command.Split(' ', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || parts[0] is not ("RETR" or "STOR")) return command;
+        var file = await PrepareRelativeFilePathAsync(parts[1], cancellationToken);
+        return $"{parts[0]} {file}";
+    }
+
+    private async Task<string> PrepareRelativeFilePathAsync(string remotePath, CancellationToken cancellationToken)
+    {
+        var normalized = remotePath.Replace('\\', '/').TrimEnd('/');
+        var slash = normalized.LastIndexOf('/');
+        if (slash < 0) return normalized;
+        var file = normalized[(slash + 1)..];
+        if (file.Length == 0) throw new ArgumentException("A remote file path must include a filename.", nameof(remotePath));
+        var parent = slash == 0 ? "/" : normalized[..slash];
+        EnsureSuccess(await CommandAsync($"CWD {parent}", cancellationToken), 250);
+        return file;
     }
 
     private async Task TransferActiveAsync(string command, long offset, Func<Stream, Task> transfer, CancellationToken cancellationToken)

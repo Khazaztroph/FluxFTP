@@ -2,6 +2,14 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.22 — 2026-07-30
+
+### Fixed
+
+- Remote file transfers now change to the source and destination parent directories before issuing relative `RETR` and `STOR` commands, matching FlashFXP behavior and ioFTPD pre-command script expectations.
+- The relative-path command flow is used consistently for direct FXP, reversed PASV/PORT FXP, client relay, downloads and uploads.
+- FXP failure diagnostics now display the actual `CWD`, relative `RETR` and relative `STOR` command sequence.
+
 ## 1.0.21 — 2026-07-29
 
 ### Added

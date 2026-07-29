@@ -1118,9 +1118,11 @@ public partial class MainWindow : Window
         LogText.AppendText(
             $"{Environment.NewLine}FXP diagnostic:" +
             $"{Environment.NewLine}  Source: {sourceProfile.Name} ({sourceSession.ConnectedHost}:{sourceSession.ConnectedPort})" +
-            $"{Environment.NewLine}  > RETR {entry.Source}" +
+            $"{Environment.NewLine}  > CWD {RemoteParent(entry.Source)}" +
+            $"{Environment.NewLine}  > RETR {RemoteLeaf(entry.Source)}" +
             $"{Environment.NewLine}  Destination: {destinationProfile.Name} ({destinationSession.ConnectedHost}:{destinationSession.ConnectedPort})" +
-            $"{Environment.NewLine}  > STOR {entry.Destination}" +
+            $"{Environment.NewLine}  > CWD {RemoteParent(entry.Destination)}" +
+            $"{Environment.NewLine}  > STOR {RemoteLeaf(entry.Destination)}" +
             $"{Environment.NewLine}  Destination parent: {RemoteParent(entry.Destination)}" +
             $"{Environment.NewLine}  Data protection: {(clearFxp ? "Clear" : "TLS")}; route: {route}" +
             $"{Environment.NewLine}  PRET: source {(sourceProfile.EffectiveOptions.NeedsPret ? "on" : "off")}, destination {(destinationProfile.EffectiveOptions.NeedsPret ? "on" : "off")}");
