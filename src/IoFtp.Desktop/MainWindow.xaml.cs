@@ -1005,7 +1005,7 @@ public partial class MainWindow : Window
                         LogText.AppendText($"{Environment.NewLine}Attempting direct {(clearFxp ? "clear" : "secure")} FXP: {entry.Name}");
                         var fxpStartedAt = DateTime.UtcNow;
                         using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        var monitor = MonitorFxpAsync(destinationProfile, entry, monitorCancellation.Token);
+                        var monitor = MonitorFxpAsync(sourceProfile, destinationProfile, entry, monitorCancellation.Token);
                         try
                         {
                             if (useReverse)
@@ -1234,64 +1234,122 @@ public partial class MainWindow : Window
         }
     }
 
-    private static async Task MonitorFxpAsync(ConnectionProfile destinationProfile, QueueEntryView entry, CancellationToken cancellationToken)
+    private static async Task MonitorFxpAsync(ConnectionProfile sourceProfile, ConnectionProfile destinationProfile,
+        QueueEntryView entry, CancellationToken cancellationToken)
     {
         await using var monitor = await CreateWorkerAsync(destinationProfile, cancellationToken);
+        FtpRemoteSession? sourceMonitor = null;
         long previousBytes = 0;
         var previousAt = DateTime.UtcNow;
         var hasSizeBaseline = false;
         bool? ioGuiExtAvailable = null;
-        while (true)
+        var destinationMisses = 0;
+        var lastActivityAt = DateTime.UtcNow;
+
+        void ApplyActivitySample(long transferred, long speed)
         {
-            await Task.Delay(250, cancellationToken);
-            // ioFTPD commonly preallocates the complete destination file, so SIZE
-            // cannot reveal live FXP progress. ioGuiExt exposes the same transfer
-            // counter and speed that ioGUI uses; prefer it when available.
-            try
+            var now = DateTime.UtcNow;
+            var elapsed = Math.Clamp((now - lastActivityAt).TotalSeconds, 0, 2);
+            lastActivityAt = now;
+            if (transferred > entry.BytesTransferred)
+                entry.BytesTransferred = entry.TotalBytes > 0 ? Math.Min(transferred, entry.TotalBytes) : transferred;
+            else if (speed > 0 && elapsed > 0)
             {
-                var activity = await monitor.ExecuteCommandAsync("SITE ioGuiExt who", cancellationToken);
-                ioGuiExtAvailable = activity.StatusCode is >= 200 and < 300;
-                if (ioGuiExtAvailable == true)
+                var estimated = entry.BytesTransferred + (long)(speed * elapsed);
+                entry.BytesTransferred = entry.TotalBytes > 0 ? Math.Min(estimated, entry.TotalBytes) : estimated;
+            }
+            if (speed > 0) entry.SpeedBytesPerSecond = speed;
+        }
+
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(400, cancellationToken);
+                // ioFTPD commonly preallocates the complete destination file, so SIZE
+                // cannot reveal live FXP progress. ioGuiExt exposes the same transfer
+                // counter and speed that ioGUI uses; prefer it when available.
+                var activityMatched = false;
+                try
                 {
-                    if (TryReadIoFtpdTransfer(activity.Message, entry, out var transferred, out var speed))
+                    var activity = await monitor.ExecuteCommandAsync("SITE ioGuiExt who", cancellationToken);
+                    ioGuiExtAvailable = activity.StatusCode is >= 200 and < 300;
+                    if (ioGuiExtAvailable == true &&
+                        TryReadIoFtpdTransfer(activity.Message, entry, expectUpload: true, out var transferred, out var speed))
                     {
-                        if (transferred >= 0) entry.BytesTransferred = transferred;
-                        // ioFTPD briefly reports zero while changing internal state.
-                        // Retain the latest valid sample rather than flashing 0 B/s.
-                        if (speed > 0) entry.SpeedBytesPerSecond = speed;
+                        // ioFTPD can leave TRANSFERSIZE at zero while still reporting
+                        // a valid speed. Integrate that speed until a better counter
+                        // arrives so the aggregate progress bar keeps moving.
+                        ApplyActivitySample(transferred, speed);
+                        activityMatched = true;
                     }
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    ioGuiExtAvailable = false;
+                }
+
+                if (activityMatched)
+                {
+                    destinationMisses = 0;
                     continue;
                 }
-            }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Not every FTP server has ioGuiExt; fall through to SIZE polling.
-            }
 
-            var bytes = await monitor.GetSizeAsync(entry.Destination, cancellationToken);
-            if (bytes is null) continue;
-            var now = DateTime.UtcNow;
-            if (!hasSizeBaseline)
-            {
+                destinationMisses++;
+                if (sourceMonitor is null && destinationMisses >= 3)
+                {
+                    try { sourceMonitor = await CreateWorkerAsync(sourceProfile, cancellationToken); }
+                    catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
+                }
+                if (sourceMonitor is not null)
+                {
+                    try
+                    {
+                        var sourceActivity = await sourceMonitor.ExecuteCommandAsync("SITE ioGuiExt who", cancellationToken);
+                        if (sourceActivity.StatusCode is >= 200 and < 300 &&
+                            TryReadIoFtpdTransfer(sourceActivity.Message, entry, expectUpload: false, out var transferred, out var speed))
+                        {
+                            ApplyActivitySample(transferred, speed);
+                            continue;
+                        }
+                    }
+                    catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
+                }
+
+                // If ioGuiExt answered but did not contain a matching row, SIZE is
+                // still worth trying. Previously this fallback was skipped entirely.
+                var bytes = await monitor.GetSizeAsync(entry.Destination, cancellationToken);
+                if (bytes is null) continue;
+                var now = DateTime.UtcNow;
+                if (!hasSizeBaseline)
+                {
+                    previousBytes = bytes.Value;
+                    previousAt = now;
+                    hasSizeBaseline = true;
+                    continue;
+                }
+                var seconds = Math.Max((now - previousAt).TotalSeconds, 0.001);
+                var measuredSpeed = Math.Max(0, (long)((bytes.Value - previousBytes) / seconds));
+                if (measuredSpeed > 0 || ioGuiExtAvailable == false) entry.SpeedBytesPerSecond = measuredSpeed;
+                entry.BytesTransferred = bytes.Value;
                 previousBytes = bytes.Value;
                 previousAt = now;
-                hasSizeBaseline = true;
-                continue;
             }
-            var seconds = Math.Max((now - previousAt).TotalSeconds, 0.001);
-            var measuredSpeed = Math.Max(0, (long)((bytes.Value - previousBytes) / seconds));
-            if (measuredSpeed > 0 || ioGuiExtAvailable == false) entry.SpeedBytesPerSecond = measuredSpeed;
-            entry.BytesTransferred = bytes.Value;
-            previousBytes = bytes.Value;
-            previousAt = now;
+        }
+        finally
+        {
+            if (sourceMonitor is not null) await sourceMonitor.DisposeAsync();
         }
     }
 
-    private static bool TryReadIoFtpdTransfer(string response, QueueEntryView entry, out long transferred, out long speed)
+    private static bool TryReadIoFtpdTransfer(string response, QueueEntryView entry, bool expectUpload,
+        out long transferred, out long speed)
     {
         transferred = -1;
         speed = 0;
         var fileName = entry.Name;
+        (long Transferred, long Speed)? fallback = null;
+        var activeCandidates = 0;
         foreach (var line in response.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
             var payload = line.Length > 4 && char.IsDigit(line[0]) && char.IsDigit(line[1]) && char.IsDigit(line[2])
@@ -1299,16 +1357,32 @@ public partial class MainWindow : Window
                 : line.Trim();
             if (!payload.StartsWith("cid |", StringComparison.OrdinalIgnoreCase)) continue;
             var parts = payload.Split('|').Select(part => part.Trim()).ToArray();
-            if (parts.Length < 19 || parts[16] == "0") continue;
-            var identity = $"{parts[10]} {parts[12]} {parts[13]}";
-            if (!identity.Contains(fileName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (parts.Length < 19) continue;
+            var action = $"{parts[10]} {parts[16]}";
+            var expectedAction = expectUpload
+                ? action.Contains("STOR", StringComparison.OrdinalIgnoreCase) || action.Contains("UPLOAD", StringComparison.OrdinalIgnoreCase)
+                : action.Contains("RETR", StringComparison.OrdinalIgnoreCase) || action.Contains("DOWNLOAD", StringComparison.OrdinalIgnoreCase);
+            if (!expectedAction) continue;
 
-            if (long.TryParse(parts[17], NumberStyles.Integer, CultureInfo.InvariantCulture, out var bytes))
+            var bytes = long.TryParse(parts[17], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedBytes)
+                ? parsedBytes
+                : -1;
+            var parsedSpeed = ParseIoFtpdSpeed(parts[18]);
+            var identity = $"{parts[10]} {parts[12]} {parts[13]}";
+            if (identity.Contains(fileName, StringComparison.OrdinalIgnoreCase))
+            {
                 transferred = bytes;
-            speed = ParseIoFtpdSpeed(parts[18]);
-            return true;
+                speed = parsedSpeed;
+                return true;
+            }
+
+            activeCandidates++;
+            fallback = (bytes, parsedSpeed);
         }
-        return false;
+        if (activeCandidates != 1 || fallback is null) return false;
+        transferred = fallback.Value.Transferred;
+        speed = fallback.Value.Speed;
+        return true;
     }
 
     private static long ParseIoFtpdSpeed(string value)
@@ -1757,8 +1831,11 @@ public partial class MainWindow : Window
         var total = known.Sum(item => (double)item.TotalBytes);
         var transferred = known.Sum(item => Math.Min((double)item.BytesTransferred, item.TotalBytes));
         var percent = total <= 0 ? 0 : transferred * 100 / total;
+        var speed = active.Where(item => item.State == "Transferring").Sum(item => item.SpeedBytesPerSecond);
         StatusProgressBar.IsIndeterminate = false; StatusProgressBar.Value = percent;
-        StatusProgressText.Text = $"{percent:0}%  {known.Count}/{active.Count}";
+        StatusProgressText.Text = speed > 0
+            ? $"{percent:0}%  {FormatSize(speed)}/s"
+            : $"{percent:0}%  {known.Count}/{active.Count}";
     }
 
     private string ScrollLegend(string text)

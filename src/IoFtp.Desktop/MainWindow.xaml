@@ -37,9 +37,9 @@
 
         <StatusBar x:Name="LegendBar" DockPanel.Dock="Bottom" Height="30">
             <Grid Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StatusBar}}">
-                <TextBlock x:Name="LegendText" Text="FluxFTP ready" VerticalAlignment="Center" Margin="5,0,310,0"/>
+                <TextBlock x:Name="LegendText" Text="FluxFTP ready" VerticalAlignment="Center" Margin="5,0,350,0"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,12,0" VerticalAlignment="Center">
-                    <TextBlock x:Name="StatusProgressText" Text="Idle" Width="100" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="StatusProgressText" Text="Idle" Width="140" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <ProgressBar x:Name="StatusProgressBar" Style="{StaticResource FilledProgressBar}" Width="220" Height="16" Minimum="0" Maximum="100"/>
                 </StackPanel>
                 <TextBlock x:Name="QueueStatus" Text="0 queued" Visibility="Collapsed"/>

@@ -2,6 +2,19 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.26 — 2026-07-30
+
+### Fixed
+
+- FXP monitoring now accepts the same ioGuiExt activity rows as ioGUI3 instead of incorrectly discarding active status rows.
+- A successful ioGuiExt command without an exact destination filename match no longer disables all fallback progress measurement.
+- FluxFTP can read RETR activity from the source site when the destination does not expose matching STOR activity, such as ProFTPD-to-ioFTPD routes.
+- The aggregate status progress bar estimates transferred bytes from live FXP speed when ioFTPD does not publish a usable `TRANSFERSIZE` value.
+
+### Changed
+
+- The main status bar now displays live FXP throughput next to the aggregate percentage.
+
 ## 1.0.25 — 2026-07-30
 
 ### Changed
