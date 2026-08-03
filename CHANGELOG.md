@@ -1,10 +1,17 @@
 # Changelog
 
-- Fixed UNIX symbolic links being displayed as `name -> target` and opened with that invalid path; links now retain their target metadata and can be navigated like directories.
-- Expanded the connection log with timestamped raw FTP commands/server replies, automatic password masking, and Copy/Clear controls.
-- Expanded both file-list context menus with Open/View, add-to-queue wording, create-and-enter folder, create-empty-file, and copy FTP/file URL actions.
-
 All notable FluxFTP changes are documented here.
+
+## 1.0.27 — 2026-08-03
+
+### Added
+
+- Expanded both file-list context menus with Open/View, add-to-queue wording, create-and-enter folder, create-empty-file, and copy FTP/file URL actions.
+- Expanded the connection log with timestamped raw FTP commands/server replies, automatic password masking, and Copy/Clear controls.
+
+### Fixed
+
+- UNIX symbolic links displayed as `name -> target` are now parsed with separate name and target metadata and can be navigated like directories.
 
 ## 1.0.26 — 2026-07-30
 
