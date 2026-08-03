@@ -173,11 +173,26 @@ public partial class MainWindow : Window
                 Priority: options.Priority,
                 BlockedSources: ResolveSiteNames(options.BlockTransfersFrom),
                 BlockedTargets: ResolveSiteNames(options.BlockTransfersTo)));
-            using (var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-                await session.ConnectAsync(profile, connectTimeout.Token);
+            using (var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20)))
+            {
+                try { await session.ConnectAsync(profile, connectTimeout.Token); }
+                catch (SshHostKeyException hostKey)
+                {
+                    var trust = MessageBox.Show(
+                        $"The SFTP server presented this SSH host key:\n\n{hostKey.Fingerprint}\n\nTrust and save this key for {profile.Name}?",
+                        "Trust SFTP host key", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    if (trust != MessageBoxResult.Yes) throw;
+                    profile = profile with { SshHostKeyFingerprint = hostKey.Fingerprint };
+                    SaveTrustedHostKey(profile);
+                    await session.ConnectAsync(profile, connectTimeout.Token);
+                    if (left) _leftProfile = profile; else _rightProfile = profile;
+                }
+            }
             new ProfileStore().PromoteAddress(profile.Id, session.ConnectedHost, session.ConnectedPort);
             ConnectionStatus.Text = $"Connected: {session.ConnectedHost}:{session.ConnectedPort}; loading files…";
-            LogText.AppendText($"{Environment.NewLine}TLS login succeeded. Loading directory with {DescribeListingMode(profile.ListingMode, session.Capabilities)}…");
+            LogText.AppendText(profile.Protocol == TransferProtocol.Sftp
+                ? $"{Environment.NewLine}SFTP login succeeded. Loading directory…"
+                : $"{Environment.NewLine}TLS login succeeded. Loading directory with {DescribeListingMode(profile.ListingMode, session.Capabilities)}…");
             LogText.ScrollToEnd();
             IReadOnlyList<IoFtp.Core.Abstractions.RemoteEntry> entries;
             using (var listTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20)))
@@ -196,6 +211,16 @@ public partial class MainWindow : Window
             LogText.AppendText($"{Environment.NewLine}Connection failed: {FriendlyMessage(exception)}");
         }
         finally { LogText.ScrollToEnd(); }
+    }
+
+    private static void SaveTrustedHostKey(ConnectionProfile trustedProfile)
+    {
+        var store = new ProfileStore();
+        var profiles = store.Load().ToList();
+        var index = profiles.FindIndex(profile => profile.Id == trustedProfile.Id);
+        if (index < 0) return;
+        profiles[index] = trustedProfile;
+        store.Save(profiles);
     }
 
     private void AttachProtocolLog(FtpRemoteSession session, string siteName)
@@ -1117,8 +1142,10 @@ public partial class MainWindow : Window
                 var clearFxp = !sourceSession.UsesTlsControl || !destinationSession.UsesTlsControl ||
                     sourceSession.FxpProtection == FxpProtectionMode.Clear ||
                     destinationSession.FxpProtection == FxpProtectionMode.Clear;
-                var directFxpAvailable = clearFxp || destinationSession.Capabilities.Contains("CPSV") ||
-                    (sourceSession.Capabilities.Contains("SSCN") && destinationSession.Capabilities.Contains("SSCN"));
+                var directFxpAvailable = sourceProfile.Protocol != TransferProtocol.Sftp &&
+                    destinationProfile.Protocol != TransferProtocol.Sftp &&
+                    (clearFxp || destinationSession.Capabilities.Contains("CPSV") ||
+                    (sourceSession.Capabilities.Contains("SSCN") && destinationSession.Capabilities.Contains("SSCN")));
                 var pair = (Source: sourceProfile.Id, Destination: destinationProfile.Id);
                 var configuredReverse = PreferredReverseFxp(sourceProfile, destinationProfile);
                 var learnedReverse = configuredReverse is null && _reverseFxpPairs.Contains(pair);

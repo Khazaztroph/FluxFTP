@@ -72,7 +72,8 @@ public sealed record ConnectionProfile(
     SiteOptions? Options = null,
     ProxyConfiguration? Proxy = null,
     string AlternateAddresses = "",
-    string Description = "")
+    string Description = "",
+    string SshHostKeyFingerprint = "")
 {
     [JsonIgnore] public SiteOptions EffectiveOptions => Options ?? new SiteOptions();
     [JsonIgnore] public string ProtocolDisplay => TransferProtocolNames.Display(Protocol);

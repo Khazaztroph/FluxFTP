@@ -20,6 +20,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly List<(string Name, TimeSpan Elapsed)> _lastFxpStageTimings = [];
     private bool _protectData = true;
+    private SftpRemoteSession? _sftpSession;
 
     /// <summary>Raw FTP control-channel traffic. PASS arguments are always masked.</summary>
     public event Action<string>? ProtocolMessage;
@@ -36,7 +37,18 @@ public sealed class FtpRemoteSession : IRemoteSession
     public async Task ConnectAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
         if (profile.Protocol == TransferProtocol.Sftp)
-            throw new NotSupportedException("SFTP transport is not available yet.");
+        {
+            _profile = profile;
+            var sftp = new SftpRemoteSession();
+            await sftp.ConnectAsync(profile, cancellationToken);
+            _sftpSession = sftp;
+            ConnectedHost = profile.Host;
+            ConnectedPort = profile.Port;
+            Capabilities = sftp.Capabilities;
+            IsConnected = true;
+            ProtocolMessage?.Invoke($"< SFTP connected to {profile.Host}:{profile.Port}");
+            return;
+        }
 
         _profile = profile;
         // Prefer IPv4 for FTP/FXP. A dual-stack DNS result could otherwise make
@@ -129,6 +141,8 @@ public sealed class FtpRemoteSession : IRemoteSession
         CancellationToken cancellationToken, bool reverseDataConnection = false)
     {
         EnsureConnected(); destination.EnsureConnected();
+        if (_sftpSession is not null || destination._sftpSession is not null)
+            throw new NotSupportedException("Direct FXP is unavailable for SFTP; use client relay instead.");
         if (ReferenceEquals(this, destination)) throw new InvalidOperationException("FXP requires two different sessions.");
         _lastFxpStageTimings.Clear();
         LastFxpNegotiation = "None";
@@ -304,6 +318,7 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     public async Task<IReadOnlyList<RemoteEntry>> ListAsync(string path, CancellationToken cancellationToken)
     {
+        if (_sftpSession is not null) return await _sftpSession.ListAsync(path, cancellationToken);
         await _operationGate.WaitAsync(cancellationToken);
         var clearListing = _profile?.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit &&
             _profile.EffectiveOptions.SecureFileListings == false;
@@ -456,6 +471,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     }
 
     public Task DownloadAsync(string remotePath, Stream destination, long offset, IProgress<long>? progress, CancellationToken cancellationToken) =>
+        _sftpSession is not null ? _sftpSession.DownloadAsync(remotePath, destination, offset, progress, cancellationToken) :
         TransferAsync($"RETR {remotePath}", offset, async data =>
         {
             var buffer = new byte[64 * 1024]; long total = offset; int read;
@@ -464,6 +480,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         }, cancellationToken);
 
     public Task UploadAsync(string remotePath, Stream source, long offset, IProgress<long>? progress, CancellationToken cancellationToken) =>
+        _sftpSession is not null ? _sftpSession.UploadAsync(remotePath, source, offset, progress, cancellationToken) :
         TransferAsync($"STOR {remotePath}", offset, async data =>
         {
             var buffer = new byte[64 * 1024]; long total = offset; int read;
@@ -474,6 +491,7 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     public async Task<RemoteCommandResult> ExecuteCommandAsync(string command, CancellationToken cancellationToken)
     {
+        if (_sftpSession is not null) return await _sftpSession.ExecuteCommandAsync(command, cancellationToken);
         await _operationGate.WaitAsync(cancellationToken);
         try
         {
@@ -775,6 +793,15 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     public async Task DisconnectAsync(CancellationToken cancellationToken)
     {
+        if (_sftpSession is not null)
+        {
+            await _sftpSession.DisconnectAsync(cancellationToken);
+            _sftpSession = null;
+            IsConnected = false;
+            _profile = null;
+            Capabilities = new HashSet<string>();
+            return;
+        }
         if (_writer is not null)
         {
             try { await CommandAsync("QUIT", cancellationToken); } catch { }

@@ -2,6 +2,18 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.28 — 2026-08-03
+
+### Added
+
+- Desktop SFTP connections with password authentication, browsing, upload, download, resume and client-relay transfers.
+- SHA256 SSH host-key verification with an explicit trust prompt and persistent per-site fingerprints.
+- SFTP-backed create folder/file, rename, recursive delete, chmod, preview and queue operations.
+
+### Changed
+
+- Remote-to-remote transfers involving SFTP automatically use client relay because the FTP FXP protocol is not available over SSH.
+
 ## 1.0.27 — 2026-08-03
 
 ### Added

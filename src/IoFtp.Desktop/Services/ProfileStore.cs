@@ -51,6 +51,7 @@ internal sealed class ProfileStore
             Write(text, "Password", Protect(profile.Password));
             Write(text, "Protocol", profile.Protocol);
             Write(text, "AllowInvalidCertificate", profile.AllowInvalidCertificate);
+            Write(text, "SshHostKeyFingerprint", profile.SshHostKeyFingerprint);
             Write(text, "ListingMode", profile.ListingMode);
             Write(text, "MaxSlots", options.MaxSlots);
             Write(text, "MaxUploadSlots", options.MaxUploadSlots);
@@ -99,7 +100,8 @@ internal sealed class ProfileStore
             result.Add(new ConnectionProfile(id, Get(values, "Name", "Site"), Get(values, "Host"), Int(values, "Port", 21),
                 Get(values, "Username"), EnumValue(values, "Protocol", TransferProtocol.Ftp), Unprotect(Get(values, "Password")),
                 Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.Auto), options,
-                AlternateAddresses: Get(values, "AlternateAddresses"), Description: Get(values, "Description")));
+                AlternateAddresses: Get(values, "AlternateAddresses"), Description: Get(values, "Description"),
+                SshHostKeyFingerprint: Get(values, "SshHostKeyFingerprint")));
         }
 
         foreach (var rawLine in File.ReadLines(path))
