@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     private ListSortDirection _leftSortDirection = ListSortDirection.Ascending;
     private ListSortDirection _rightSortDirection = ListSortDirection.Ascending;
     private Point _dragStart;
+    private ListViewItem? _preservedDragItem;
+    private bool _dragStarted;
     private bool _reloadingQuickSites;
     private bool _reloadingBookmarks;
     private bool _reloadingDrives;
@@ -1094,7 +1096,32 @@ public partial class MainWindow : Window
     private void QueueLeft_Click(object sender, RoutedEventArgs e) => Upload_Click(sender, e);
     private void QueueRight_Click(object sender, RoutedEventArgs e) => Download_Click(sender, e);
 
-    private void FileList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) => _dragStart = e.GetPosition(this);
+    private void FileList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _dragStart = e.GetPosition(this);
+        _dragStarted = false;
+        _preservedDragItem = null;
+        if (sender is ListView list && list.SelectedItems.Count > 1 && Keyboard.Modifiers == ModifierKeys.None &&
+            ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListViewItem { IsSelected: true } item)
+        {
+            // WPF normally collapses an extended selection to the item under the
+            // mouse before MouseMove starts. Preserve it until we know whether
+            // this is a click or a multi-item drag.
+            _preservedDragItem = item;
+            e.Handled = true;
+        }
+    }
+
+    private void FileList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_preservedDragItem is not null && !_dragStarted && sender is ListView list)
+        {
+            list.SelectedItems.Clear();
+            _preservedDragItem.IsSelected = true;
+        }
+        _preservedDragItem = null;
+        _dragStarted = false;
+    }
     private void FileList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is ListView list && ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListViewItem item)
@@ -1107,13 +1134,21 @@ public partial class MainWindow : Window
     {
         if (e.LeftButton == MouseButtonState.Pressed && LocalList.SelectedItem is not null &&
             (e.GetPosition(this) - _dragStart).Length > SystemParameters.MinimumHorizontalDragDistance)
+        {
+            _dragStarted = true;
             DragDrop.DoDragDrop(LocalList, "ioftp-left", DragDropEffects.Copy);
+            _preservedDragItem = null;
+        }
     }
     private void RemoteList_MouseMove(object sender, MouseEventArgs e)
     {
         if (e.LeftButton == MouseButtonState.Pressed && RemoteList.SelectedItem is not null &&
             (e.GetPosition(this) - _dragStart).Length > SystemParameters.MinimumHorizontalDragDistance)
+        {
+            _dragStarted = true;
             DragDrop.DoDragDrop(RemoteList, "ioftp-right", DragDropEffects.Copy);
+            _preservedDragItem = null;
+        }
     }
     private void FileList_DragOver(object sender, DragEventArgs e)
     {

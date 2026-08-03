@@ -182,8 +182,17 @@ public sealed class FtpRemoteSession : IRemoteSession
             if (_profile!.EffectiveOptions.CeprSupported)
             {
                 sourcePassive = await MeasureFxpStageAsync("EPSV", () => CommandAsync("EPSV", cancellationToken));
-                EnsureSuccess(sourcePassive, 229);
-                sourceAdvertised = ParseExtendedPassiveEndpoint(sourcePassive.Message, _profile.Host, true);
+                if (sourcePassive.Code == 229)
+                    sourceAdvertised = ParseExtendedPassiveEndpoint(sourcePassive.Message, _profile.Host, true);
+                else
+                {
+                    // CEPR may be enabled for a bouncer while the currently selected
+                    // endpoint does not implement EPSV. Fall back without sacrificing
+                    // the otherwise valid PASV/PORT FXP route.
+                    sourcePassive = await MeasureFxpStageAsync("PASV", () => CommandAsync("PASV", cancellationToken));
+                    EnsureSuccess(sourcePassive, 227);
+                    sourceAdvertised = ParsePassiveEndpoint(sourcePassive.Message);
+                }
             }
             else
             {
@@ -202,8 +211,23 @@ public sealed class FtpRemoteSession : IRemoteSession
         if (destination._profile!.EffectiveOptions.CeprSupported)
         {
             passive = await MeasureFxpStageAsync("EPSV", () => destination.CommandAsync("EPSV", cancellationToken));
-            EnsureSuccess(passive, 229);
-            advertised = ParseExtendedPassiveEndpoint(passive.Message, destination._profile.Host, true);
+            if (passive.Code == 229)
+                advertised = ParseExtendedPassiveEndpoint(passive.Message, destination._profile.Host, true);
+            else
+            {
+                // A CEPR-configured endpoint may reject EPSV even though the
+                // underlying ioFTPD site supports CPSV. Preserve secure FXP by
+                // preferring CPSV before falling all the way back to PASV/SSCN.
+                if (secureFxp && destination.Capabilities.Contains("CPSV"))
+                {
+                    passive = await MeasureFxpStageAsync("CPSV", () => destination.CommandAsync("CPSV", cancellationToken));
+                    usedCpsv = passive.Code == 227;
+                }
+                if (!usedCpsv)
+                    passive = await MeasureFxpStageAsync("PASV", () => destination.CommandAsync("PASV", cancellationToken));
+                EnsureSuccess(passive, 227);
+                advertised = ParsePassiveEndpoint(passive.Message);
+            }
         }
         else if (secureFxp && destination.Capabilities.Contains("CPSV"))
         {

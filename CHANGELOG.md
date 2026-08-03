@@ -2,6 +2,14 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.32 — 2026-08-03
+
+### Fixed
+
+- Secure FXP now falls back from an unsupported CEPR/EPSV command to CPSV when available, preserving the working ioFTPD TLS route before trying PASV/SSCN.
+- Clear reverse FXP now falls back from an unsupported EPSV command to regular PASV instead of abandoning the direct route immediately.
+- Dragging from an existing multi-selection now preserves every selected file and folder, allowing several remote folders to be queued through one drag-and-drop operation.
+
 ## 1.0.31 — 2026-08-03
 
 ### Added

@@ -106,7 +106,8 @@
                         <TextBox x:Name="LocalPath" Text="/" KeyDown="LocalPath_KeyDown"/>
                     </DockPanel>
                     <ListView x:Name="LocalList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
-                              PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="LocalList_MouseMove"
+                              PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" PreviewMouseLeftButtonUp="FileList_PreviewMouseLeftButtonUp"
+                              MouseMove="LocalList_MouseMove"
                               PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True"
                               PreviewDragOver="FileList_DragOver" Drop="LocalList_Drop">
                         <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
@@ -159,7 +160,8 @@
                         <TextBox x:Name="RemotePath" Text="/" KeyDown="RemotePath_KeyDown"/>
                     </DockPanel>
                     <ListView x:Name="RemoteList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"
-                              PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="RemoteList_MouseMove"
+                              PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" PreviewMouseLeftButtonUp="FileList_PreviewMouseLeftButtonUp"
+                              MouseMove="RemoteList_MouseMove"
                               PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True"
                               PreviewDragOver="FileList_DragOver" Drop="RemoteList_Drop">
                         <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
