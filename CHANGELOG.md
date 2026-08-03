@@ -2,6 +2,16 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.34 — 2026-08-03
+
+### Added
+
+- Connection Log now reports the negotiated TLS version, cipher suite and strength, certificate subject, issuer, validity period and validation result for the control connection and first protected data connection.
+
+### Fixed
+
+- Explicit and implicit FTPS now automatically reconnect with TLS 1.2 only when the initial TLS 1.2/1.3 negotiation returns an invalid or corrupted TLS frame, improving compatibility with affected glFTPd, OpenSSL and bouncer configurations.
+
 ## 1.0.33 — 2026-08-03
 
 ### Added

@@ -4,6 +4,7 @@ using System.Net.Security;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using IoFtp.Core.Abstractions;
 using IoFtp.Core.Models;
@@ -20,6 +21,9 @@ public sealed class FtpRemoteSession : IRemoteSession
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly List<(string Name, TimeSpan Elapsed)> _lastFxpStageTimings = [];
     private bool _protectData = true;
+    private SslPolicyErrors _lastTlsPolicyErrors;
+    private int _loggedDataTlsDetails;
+    private bool _tls12Only;
     private SftpRemoteSession? _sftpSession;
 
     /// <summary>Raw FTP control-channel traffic. PASS arguments are always masked.</summary>
@@ -36,6 +40,28 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     public async Task ConnectAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
+        _tls12Only = false;
+        try
+        {
+            await ConnectCoreAsync(profile, cancellationToken);
+        }
+        catch (Exception exception) when (
+            profile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit &&
+            IsMalformedTlsFrame(exception) && !cancellationToken.IsCancellationRequested)
+        {
+            ProtocolMessage?.Invoke("< TLS negotiation returned an invalid frame; reconnecting with TLS 1.2 only...");
+            using (var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+                await DisconnectAsync(cleanupTimeout.Token);
+            _tls12Only = true;
+            await ConnectCoreAsync(profile, cancellationToken);
+        }
+    }
+
+    private async Task ConnectCoreAsync(ConnectionProfile profile, CancellationToken cancellationToken)
+    {
+        _lastTlsPolicyErrors = SslPolicyErrors.None;
+        _loggedDataTlsDetails = 0;
+
         if (profile.Protocol == TransferProtocol.Sftp)
         {
             _profile = profile;
@@ -683,8 +709,10 @@ public sealed class FtpRemoteSession : IRemoteSession
         await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
         {
             TargetHost = string.IsNullOrWhiteSpace(ConnectedHost) ? _profile.Host : ConnectedHost,
-            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+            EnabledSslProtocols = EnabledTlsProtocols
         }, cancellationToken);
+        if (Interlocked.Exchange(ref _loggedDataTlsDetails, 1) == 0)
+            LogTlsDetails(ssl, "data");
         return ssl;
     }
 
@@ -852,14 +880,62 @@ public sealed class FtpRemoteSession : IRemoteSession
         await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
         {
             TargetHost = string.IsNullOrWhiteSpace(ConnectedHost) ? _profile!.Host : ConnectedHost,
-            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+            EnabledSslProtocols = EnabledTlsProtocols
         }, cancellationToken);
+        LogTlsDetails(ssl, "control");
         _controlStream = ssl;
     }
 
-    private bool ValidateCertificate(object sender, System.Security.Cryptography.X509Certificates.X509Certificate? certificate,
-        System.Security.Cryptography.X509Certificates.X509Chain? chain, SslPolicyErrors errors) =>
-        errors == SslPolicyErrors.None || _profile?.AllowInvalidCertificate == true;
+    private bool ValidateCertificate(object sender, X509Certificate? certificate,
+        X509Chain? chain, SslPolicyErrors errors)
+    {
+        _lastTlsPolicyErrors = errors;
+        return errors == SslPolicyErrors.None || _profile?.AllowInvalidCertificate == true;
+    }
+
+    private void LogTlsDetails(SslStream ssl, string channel)
+    {
+        var protocol = ssl.SslProtocol switch
+        {
+            SslProtocols.Tls12 => "TLS 1.2",
+            SslProtocols.Tls13 => "TLS 1.3",
+            _ => ssl.SslProtocol.ToString()
+        };
+        ProtocolMessage?.Invoke(
+            $"< TLS {channel}: {protocol}; cipher {ssl.NegotiatedCipherSuite}; strength {ssl.CipherStrength} bits");
+
+        if (ssl.RemoteCertificate is null)
+        {
+            ProtocolMessage?.Invoke("< TLS certificate: unavailable");
+            return;
+        }
+
+        using var certificate = new X509Certificate2(ssl.RemoteCertificate);
+        var validation = _lastTlsPolicyErrors == SslPolicyErrors.None
+            ? "valid"
+            : _profile?.AllowInvalidCertificate == true
+                ? $"accepted despite {_lastTlsPolicyErrors}"
+                : $"failed: {_lastTlsPolicyErrors}";
+        ProtocolMessage?.Invoke(
+            $"< TLS certificate: Subject={SingleLine(certificate.Subject)}; Issuer={SingleLine(certificate.Issuer)}; " +
+            $"valid {certificate.NotBefore:yyyy-MM-dd HH:mm:ss} to {certificate.NotAfter:yyyy-MM-dd HH:mm:ss}; validation {validation}");
+    }
+
+    private static string SingleLine(string value) => value.Replace('\r', ' ').Replace('\n', ' ');
+
+    private SslProtocols EnabledTlsProtocols =>
+        _tls12Only ? SslProtocols.Tls12 : SslProtocols.Tls12 | SslProtocols.Tls13;
+
+    private static bool IsMalformedTlsFrame(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("Cannot determine the frame size", StringComparison.OrdinalIgnoreCase) ||
+                current.Message.Contains("corrupted frame", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
 
     private void CreateTextStreams()
     {
