@@ -21,6 +21,9 @@ public sealed class FtpRemoteSession : IRemoteSession
     private readonly List<(string Name, TimeSpan Elapsed)> _lastFxpStageTimings = [];
     private bool _protectData = true;
 
+    /// <summary>Raw FTP control-channel traffic. PASS arguments are always masked.</summary>
+    public event Action<string>? ProtocolMessage;
+
     public bool IsConnected { get; private set; }
     public string ConnectedHost { get; private set; } = "";
     public int ConnectedPort { get; private set; }
@@ -701,7 +704,10 @@ public sealed class FtpRemoteSession : IRemoteSession
         long? size = !directory && long.TryParse(facts.GetValueOrDefault("size"), out var bytes) ? bytes : null;
         DateTimeOffset? modified = DateTimeOffset.TryParseExact(facts.GetValueOrDefault("modify"), "yyyyMMddHHmmss",
             CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var timestamp) ? timestamp : null;
-        return new(name, Combine(parent, name), directory, size, modified, facts.GetValueOrDefault("perm", type));
+        var symbolicLink = type.Contains("slink", StringComparison.OrdinalIgnoreCase);
+        var target = symbolicLink && type.Contains(':') ? type[(type.IndexOf(':') + 1)..] : null;
+        return new(name, Combine(parent, name), directory || symbolicLink, size, modified,
+            facts.GetValueOrDefault("perm", type), symbolicLink, target);
     }
 
     private static IReadOnlyList<RemoteEntry> ParseStatListing(string path, string response)
@@ -804,6 +810,7 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     private async Task<FtpResponse> CommandAsync(string command, CancellationToken cancellationToken)
     {
+        ProtocolMessage?.Invoke($"> {RedactCommand(command)}");
         await _writer!.WriteLineAsync(command.AsMemory(), cancellationToken);
         return await ReadResponseAsync(cancellationToken);
     }
@@ -811,13 +818,19 @@ public sealed class FtpRemoteSession : IRemoteSession
     private async Task<FtpResponse> ReadResponseAsync(CancellationToken cancellationToken)
     {
         var first = await _reader!.ReadLineAsync(cancellationToken) ?? throw new IOException("FTP server closed the connection.");
+        ProtocolMessage?.Invoke($"< {first}");
         if (first.Length < 3 || !int.TryParse(first[..3], out var code)) throw new IOException($"Invalid FTP response: {first}");
         var lines = new List<string> { first };
         if (first.Length > 3 && first[3] == '-')
         {
             var terminator = $"{code} ";
             string line;
-            do { line = await _reader.ReadLineAsync(cancellationToken) ?? throw new IOException("FTP server closed the connection."); lines.Add(line); }
+            do
+            {
+                line = await _reader.ReadLineAsync(cancellationToken) ?? throw new IOException("FTP server closed the connection.");
+                lines.Add(line);
+                ProtocolMessage?.Invoke($"< {line}");
+            }
             while (!line.StartsWith(terminator, StringComparison.Ordinal));
         }
         return new FtpResponse(code, string.Join(Environment.NewLine, lines));
@@ -859,10 +872,25 @@ public sealed class FtpRemoteSession : IRemoteSession
         var unix = line.Split(' ', 9, StringSplitOptions.RemoveEmptyEntries);
         if (unix.Length >= 9 && unix[0].Length > 0 && unix[0][0] is 'd' or '-' or 'l')
         {
-            var name = unix[8]; if (name is "." or "..") return null;
+            var symbolicLink = unix[0][0] == 'l';
+            var displayedName = unix[8];
+            string? linkTarget = null;
+            if (symbolicLink)
+            {
+                var arrow = displayedName.IndexOf(" -> ", StringComparison.Ordinal);
+                if (arrow >= 0)
+                {
+                    linkTarget = displayedName[(arrow + 4)..].Trim();
+                    displayedName = displayedName[..arrow].TrimEnd();
+                }
+            }
+            var name = displayedName; if (name is "." or ".." || name.Length == 0) return null;
             long? size = long.TryParse(unix[4], out var bytes) ? bytes : null;
             var unixModified = ParseUnixModified(unix[5], unix[6], unix[7]);
-            return new(name, Combine(parent, name), unix[0][0] == 'd', size, unixModified, unix[0]);
+            // FTP LIST does not expose the target kind. Treat links as navigable;
+            // directory listing will provide the authoritative answer on activation.
+            return new(name, Combine(parent, name), unix[0][0] == 'd' || symbolicLink,
+                size, unixModified, unix[0], symbolicLink, linkTarget);
         }
         var windows = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (windows.Length >= 4 && DateTimeOffset.TryParse($"{windows[0]} {windows[1]}", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var modified))
@@ -892,6 +920,8 @@ public sealed class FtpRemoteSession : IRemoteSession
     }
 
     private static string Combine(string parent, string name) => $"/{string.Join('/', new[] { parent.Trim('/'), name }.Where(value => value.Length > 0))}";
+    private static string RedactCommand(string command) =>
+        command.StartsWith("PASS ", StringComparison.OrdinalIgnoreCase) ? "PASS ********" : command;
     private sealed record FtpResponse(int Code, string Message);
 }
 

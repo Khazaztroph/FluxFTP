@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -161,6 +162,7 @@ public partial class MainWindow : Window
             var session = left ? _leftRemoteSession : _remoteSession;
             if (session is not null) await session.DisposeAsync();
             session = new FtpRemoteSession();
+            AttachProtocolLog(session, profile.Name);
             if (left) { _leftRemoteSession = session; _leftProfile = profile; LeftMode.SelectedIndex = 1; }
             else { _remoteSession = session; _rightProfile = profile; RightMode.SelectedIndex = 1; }
             var options = profile.EffectiveOptions;
@@ -195,6 +197,23 @@ public partial class MainWindow : Window
         }
         finally { LogText.ScrollToEnd(); }
     }
+
+    private void AttachProtocolLog(FtpRemoteSession session, string siteName)
+    {
+        session.ProtocolMessage += message => Dispatcher.BeginInvoke(() =>
+        {
+            LogText.AppendText($"{Environment.NewLine}{DateTime.Now:HH:mm:ss} [{siteName}] {message}");
+            LogText.ScrollToEnd();
+        });
+    }
+
+    private void CopyLog_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(LogText.Text)) Clipboard.SetText(LogText.Text);
+    }
+
+    private void ClearLog_Click(object sender, RoutedEventArgs e) =>
+        LogText.Text = $"FluxFTP {UpdateCheckService.CurrentVersion} log cleared at {DateTime.Now:yyyy-MM-dd HH:mm:ss}.";
 
     private ConnectionProfile ApplyGlobalProxy(ConnectionProfile profile) => _settings.ProxyType == ProxyType.None ? profile with { Proxy = null } : profile with
     {
@@ -595,25 +614,38 @@ public partial class MainWindow : Window
     private void CopyPathLeft_Click(object sender, RoutedEventArgs e) { if (LocalList.SelectedItem is LocalEntryView item) Clipboard.SetText(item.FullPath); }
     private void CopyNameRight_Click(object sender, RoutedEventArgs e) { if (RemoteList.SelectedItem is RemoteEntryView item) Clipboard.SetText(item.Name); }
     private void CopyPathRight_Click(object sender, RoutedEventArgs e) { if (RemoteList.SelectedItem is RemoteEntryView item) Clipboard.SetText(item.FullPath); }
+    private void CopyUrlLeft_Click(object sender, RoutedEventArgs e) { if (LocalList.SelectedItem is LocalEntryView item) CopyEntryUrl(true, item.FullPath); }
+    private void CopyUrlRight_Click(object sender, RoutedEventArgs e) { if (RemoteList.SelectedItem is RemoteEntryView item) CopyEntryUrl(false, item.FullPath); }
     private async void RefreshLeft_Click(object sender, RoutedEventArgs e) { if (LeftMode.SelectedIndex == 0) LoadLocalDirectory(_localDirectory); else await NavigateLeftRemoteAsync(_leftRemoteDirectory); }
     private async void RefreshRight_Click(object sender, RoutedEventArgs e) { if (RightMode.SelectedIndex == 0) LoadRightLocalDirectory(_rightLocalDirectory); else await NavigateRemoteAsync(_remoteDirectory); }
 
     private async void CreateFolderLeft_Click(object sender, RoutedEventArgs e) => await CreateFolderAsync(true);
     private async void CreateFolderRight_Click(object sender, RoutedEventArgs e) => await CreateFolderAsync(false);
-    private async Task CreateFolderAsync(bool left)
+    private async void CreateFolderAndEnterLeft_Click(object sender, RoutedEventArgs e) => await CreateFolderAsync(true, true);
+    private async void CreateFolderAndEnterRight_Click(object sender, RoutedEventArgs e) => await CreateFolderAsync(false, true);
+    private async Task CreateFolderAsync(bool left, bool enter = false)
     {
         var dialog = new CommandParameterWindow("New folder name:") { Owner = this }; if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.Value)) return;
         try
         {
-            if (left && LeftMode.SelectedIndex == 0) Directory.CreateDirectory(Path.Combine(_localDirectory, dialog.Value));
-            else if (!left && RightMode.SelectedIndex == 0) Directory.CreateDirectory(Path.Combine(_rightLocalDirectory, dialog.Value));
+            string createdPath;
+            if (left && LeftMode.SelectedIndex == 0) { createdPath = Path.Combine(_localDirectory, dialog.Value); Directory.CreateDirectory(createdPath); }
+            else if (!left && RightMode.SelectedIndex == 0) { createdPath = Path.Combine(_rightLocalDirectory, dialog.Value); Directory.CreateDirectory(createdPath); }
             else
             {
                 var session = left ? _leftRemoteSession : _remoteSession; var directory = left ? _leftRemoteDirectory : _remoteDirectory;
                 if (session?.IsConnected != true) return; using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                await session.ExecuteCommandAsync($"MKD {NormalizeRemotePath($"{directory}/{dialog.Value}")}", timeout.Token);
+                createdPath = NormalizeRemotePath($"{directory}/{dialog.Value}");
+                await session.ExecuteCommandAsync($"MKD {createdPath}", timeout.Token);
             }
-            if (left) RefreshLeft_Click(this, new RoutedEventArgs()); else RefreshRight_Click(this, new RoutedEventArgs());
+            if (enter)
+            {
+                if (left && LeftMode.SelectedIndex == 0) LoadLocalDirectory(createdPath);
+                else if (!left && RightMode.SelectedIndex == 0) LoadRightLocalDirectory(createdPath);
+                else if (left) await NavigateLeftRemoteAsync(createdPath);
+                else await NavigateRemoteAsync(createdPath);
+            }
+            else if (left) RefreshLeft_Click(this, new RoutedEventArgs()); else RefreshRight_Click(this, new RoutedEventArgs());
         }
         catch (Exception exception) { MessageBox.Show(FriendlyMessage(exception), "Create folder", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
@@ -750,6 +782,99 @@ public partial class MainWindow : Window
             ConnectionStatus.Text = "Remote folder queue failed";
         }
         LogText.ScrollToEnd();
+    }
+
+    private async void CreateFileLeft_Click(object sender, RoutedEventArgs e) => await CreateEmptyFileAsync(true);
+    private async void CreateFileRight_Click(object sender, RoutedEventArgs e) => await CreateEmptyFileAsync(false);
+    private async Task CreateEmptyFileAsync(bool left)
+    {
+        var dialog = new CommandParameterWindow("New file name:") { Owner = this };
+        if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.Value)) return;
+        try
+        {
+            var local = (left && LeftMode.SelectedIndex == 0) || (!left && RightMode.SelectedIndex == 0);
+            if (local)
+            {
+                var directory = left ? _localDirectory : _rightLocalDirectory;
+                await File.WriteAllBytesAsync(Path.Combine(directory, dialog.Value.Trim()), []);
+            }
+            else
+            {
+                var session = left ? _leftRemoteSession : _remoteSession;
+                var directory = left ? _leftRemoteDirectory : _remoteDirectory;
+                if (session?.IsConnected != true) return;
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                await session.UploadAsync(NormalizeRemotePath($"{directory}/{dialog.Value.Trim()}"), Stream.Null, 0, null, timeout.Token);
+            }
+            if (left) RefreshLeft_Click(this, new RoutedEventArgs()); else RefreshRight_Click(this, new RoutedEventArgs());
+        }
+        catch (Exception exception) { MessageBox.Show(FriendlyMessage(exception), "Create file", MessageBoxButton.OK, MessageBoxImage.Error); }
+    }
+
+    private async void ViewLeft_Click(object sender, RoutedEventArgs e)
+    {
+        if (LocalList.SelectedItem is LocalEntryView item) await OpenOrViewAsync(true, item.FullPath, item.Name, item.IsDirectory);
+    }
+
+    private async void ViewRight_Click(object sender, RoutedEventArgs e)
+    {
+        if (RemoteList.SelectedItem is RemoteEntryView item) await OpenOrViewAsync(false, item.FullPath, item.Name, item.IsDirectory);
+    }
+
+    private async Task OpenOrViewAsync(bool left, string path, string name, bool directory)
+    {
+        try
+        {
+            var local = (left && LeftMode.SelectedIndex == 0) || (!left && RightMode.SelectedIndex == 0);
+            if (directory)
+            {
+                if (local) { if (left) LoadLocalDirectory(path); else LoadRightLocalDirectory(path); }
+                else if (left) await NavigateLeftRemoteAsync(path); else await NavigateRemoteAsync(path);
+                return;
+            }
+
+            var openPath = path;
+            if (!local)
+            {
+                var session = left ? _leftRemoteSession : _remoteSession;
+                if (session?.IsConnected != true) return;
+                var previewDirectory = Path.Combine(Path.GetTempPath(), "FluxFTP", "Preview");
+                Directory.CreateDirectory(previewDirectory);
+                openPath = Path.Combine(previewDirectory, $"{Guid.NewGuid():N}-{SanitizeFileName(name)}");
+                await using var output = new FileStream(openPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                await session.DownloadAsync(path, output, 0, null, timeout.Token);
+                LogText.AppendText($"{Environment.NewLine}Preview downloaded: {path}");
+            }
+            Process.Start(new ProcessStartInfo(openPath) { UseShellExecute = true });
+        }
+        catch (Exception exception) { MessageBox.Show(FriendlyMessage(exception), "Open / View", MessageBoxButton.OK, MessageBoxImage.Error); }
+    }
+
+    private void CopyEntryUrl(bool left, string path)
+    {
+        var local = (left && LeftMode.SelectedIndex == 0) || (!left && RightMode.SelectedIndex == 0);
+        if (local) { Clipboard.SetText(new Uri(Path.GetFullPath(path)).AbsoluteUri); return; }
+        var profile = left ? _leftProfile : _rightProfile;
+        if (profile is null) return;
+        var scheme = profile.Protocol switch
+        {
+            TransferProtocol.Sftp => "sftp",
+            TransferProtocol.FtpsImplicit => "ftps",
+            TransferProtocol.FtpsExplicit => "ftpes",
+            _ => "ftp"
+        };
+        var defaultPort = profile.Protocol switch { TransferProtocol.Sftp => 22, TransferProtocol.FtpsImplicit => 990, _ => 21 };
+        var user = string.IsNullOrWhiteSpace(profile.Username) ? "" : $"{Uri.EscapeDataString(profile.Username)}@";
+        var port = profile.Port == defaultPort ? "" : $":{profile.Port}";
+        var encodedPath = "/" + string.Join('/', path.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.EscapeDataString));
+        Clipboard.SetText($"{scheme}://{user}{profile.Host}{port}{encodedPath}");
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        return new string(name.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
     }
 
     private async Task QueueRemoteToLocalDirectoryAsync(FtpRemoteSession source, string sourceRoot,

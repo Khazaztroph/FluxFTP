@@ -88,9 +88,11 @@
                             </Style.Triggers>
                         </Style></ListView.ItemContainerStyle>
                         <ListView.ContextMenu><ContextMenu>
-                            <MenuItem Header="Transfer now →" Click="TransferLeftNow_Click"/><MenuItem Header="Queue transfer →" Click="QueueLeft_Click"/><Separator/>
-                            <MenuItem Header="Create folder..." Click="CreateFolderLeft_Click"/><MenuItem Header="Rename..." Click="RenameLeft_Click"/><MenuItem Header="Delete" Click="DeleteLeft_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodLeft_Click"/><Separator/>
-                            <MenuItem Header="Copy name" Click="CopyNameLeft_Click"/><MenuItem Header="Copy full path" Click="CopyPathLeft_Click"/><MenuItem Header="Commands..." Click="CommandsLeft_Click"/><Separator/><MenuItem Header="Refresh" Click="RefreshLeft_Click" InputGestureText="F5"/>
+                            <MenuItem Header="Transfer now →" Click="TransferLeftNow_Click"/><MenuItem Header="Add to queue →" Click="QueueLeft_Click"/><Separator/>
+                            <MenuItem Header="Open / View" Click="ViewLeft_Click"/>
+                            <MenuItem Header="Create folder..." Click="CreateFolderLeft_Click"/><MenuItem Header="Create folder and enter..." Click="CreateFolderAndEnterLeft_Click"/><MenuItem Header="Create empty file..." Click="CreateFileLeft_Click"/>
+                            <Separator/><MenuItem Header="Rename..." Click="RenameLeft_Click"/><MenuItem Header="Delete" Click="DeleteLeft_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodLeft_Click"/><Separator/>
+                            <MenuItem Header="Copy name" Click="CopyNameLeft_Click"/><MenuItem Header="Copy full path" Click="CopyPathLeft_Click"/><MenuItem Header="Copy FTP URL" Click="CopyUrlLeft_Click"/><MenuItem Header="Commands..." Click="CommandsLeft_Click"/><Separator/><MenuItem Header="Refresh" Click="RefreshLeft_Click" InputGestureText="F5"/>
                         </ContextMenu></ListView.ContextMenu>
                         <ListView.View>
                             <GridView>
@@ -135,9 +137,11 @@
                             </Style.Triggers>
                         </Style></ListView.ItemContainerStyle>
                         <ListView.ContextMenu><ContextMenu>
-                            <MenuItem Header="← Transfer now" Click="TransferRightNow_Click"/><MenuItem Header="← Queue transfer" Click="QueueRight_Click"/><Separator/>
-                            <MenuItem Header="Create folder..." Click="CreateFolderRight_Click"/><MenuItem Header="Rename..." Click="RenameRight_Click"/><MenuItem Header="Delete" Click="DeleteRight_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodRight_Click"/><Separator/>
-                            <MenuItem Header="Copy name" Click="CopyNameRight_Click"/><MenuItem Header="Copy full path" Click="CopyPathRight_Click"/><MenuItem Header="Commands..." Click="CommandsRight_Click"/><Separator/><MenuItem Header="Refresh" Click="RefreshRight_Click" InputGestureText="F5"/>
+                            <MenuItem Header="← Transfer now" Click="TransferRightNow_Click"/><MenuItem Header="← Add to queue" Click="QueueRight_Click"/><Separator/>
+                            <MenuItem Header="Open / View" Click="ViewRight_Click"/>
+                            <MenuItem Header="Create folder..." Click="CreateFolderRight_Click"/><MenuItem Header="Create folder and enter..." Click="CreateFolderAndEnterRight_Click"/><MenuItem Header="Create empty file..." Click="CreateFileRight_Click"/>
+                            <Separator/><MenuItem Header="Rename..." Click="RenameRight_Click"/><MenuItem Header="Delete" Click="DeleteRight_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodRight_Click"/><Separator/>
+                            <MenuItem Header="Copy name" Click="CopyNameRight_Click"/><MenuItem Header="Copy full path" Click="CopyPathRight_Click"/><MenuItem Header="Copy FTP URL" Click="CopyUrlRight_Click"/><MenuItem Header="Commands..." Click="CommandsRight_Click"/><Separator/><MenuItem Header="Refresh" Click="RefreshRight_Click" InputGestureText="F5"/>
                         </ContextMenu></ListView.ContextMenu>
                         <ListView.View><GridView>
                             <GridViewColumn x:Name="RightNameColumn" DisplayMemberBinding="{Binding Name}" Width="270"><GridViewColumn.Header><GridViewColumnHeader x:Name="RightNameHeader" Content="Name" Tag="Name" Click="RightHeader_Click"/></GridViewColumn.Header></GridViewColumn>
@@ -206,7 +210,14 @@
             <Border x:Name="LogPanel" Grid.Row="4" Grid.ColumnSpan="3" Background="{StaticResource WindowBrush}" Margin="8,3,8,8"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="CONNECTION LOG" Foreground="{StaticResource MutedTextBrush}" FontWeight="SemiBold" Margin="10,7" />
+                    <Grid DockPanel.Dock="Top" Margin="10,4">
+                        <TextBlock Text="CONNECTION LOG · FTP COMMANDS AND SERVER REPLIES" Foreground="{StaticResource MutedTextBrush}"
+                                   FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Copy" Padding="8,2" Margin="3,0" Click="CopyLog_Click" />
+                            <Button Content="Clear" Padding="8,2" Margin="3,0" Click="ClearLog_Click" />
+                        </StackPanel>
+                    </Grid>
                     <TextBox x:Name="LogText" IsReadOnly="True" AcceptsReturn="True" BorderThickness="0"
                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                              TextWrapping="NoWrap"
