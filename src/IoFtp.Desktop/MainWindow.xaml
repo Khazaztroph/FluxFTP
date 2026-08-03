@@ -35,13 +35,32 @@
             </Grid>
         </Border>
 
-        <StatusBar x:Name="LegendBar" DockPanel.Dock="Bottom" Height="30">
+        <StatusBar x:Name="LegendBar" DockPanel.Dock="Bottom" Height="34" Padding="4,2">
             <Grid Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StatusBar}}">
-                <TextBlock x:Name="LegendText" Text="FluxFTP ready" VerticalAlignment="Center" Margin="5,0,350,0"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,12,0" VerticalAlignment="Center">
-                    <TextBlock x:Name="StatusProgressText" Text="Idle" Width="140" TextAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <ProgressBar x:Name="StatusProgressBar" Style="{StaticResource FilledProgressBar}" Width="220" Height="16" Minimum="0" Maximum="100"/>
-                </StackPanel>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="220"/>
+                    <ColumnDefinition Width="1"/><ColumnDefinition Width="190"/>
+                    <ColumnDefinition Width="1"/><ColumnDefinition Width="155"/>
+                    <ColumnDefinition Width="1"/><ColumnDefinition Width="108"/>
+                    <ColumnDefinition Width="1"/><ColumnDefinition Width="118"/>
+                    <ColumnDefinition Width="1"/><ColumnDefinition Width="92"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LegendText" Text="FluxFTP ready" VerticalAlignment="Center" Margin="6,0"
+                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                <Border Grid.Column="1" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <TextBlock x:Name="TransferBytesText" Grid.Column="2" Text="—" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                <Border Grid.Column="3" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <Grid Grid.Column="4" Margin="7,4">
+                    <ProgressBar x:Name="StatusProgressBar" Style="{StaticResource FilledProgressBar}" Height="18" Minimum="0" Maximum="100"/>
+                    <TextBlock x:Name="StatusProgressText" Text="Idle" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+                </Grid>
+                <Border Grid.Column="5" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <TextBlock x:Name="ElapsedText" Grid.Column="6" Text="Elapsed: —" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                <Border Grid.Column="7" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <TextBlock x:Name="RemainingText" Grid.Column="8" Text="Remaining: —" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                <Border Grid.Column="9" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <TextBlock x:Name="QueueTimeText" Grid.Column="10" Text="Queue: 00:00" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 <TextBlock x:Name="QueueStatus" Text="0 queued" Visibility="Collapsed"/>
             </Grid>
         </StatusBar>

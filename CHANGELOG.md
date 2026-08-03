@@ -2,6 +2,12 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.29 — 2026-08-03
+
+### Changed
+
+- Reworked the bottom transfer status into a FlashFXP-inspired FluxFTP bar with direction and filename, transferred bytes and speed, percentage, elapsed time, estimated remaining time and queue duration.
+
 ## 1.0.28 — 2026-08-03
 
 ### Added

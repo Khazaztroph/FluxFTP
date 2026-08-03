@@ -1971,23 +1971,55 @@ public partial class MainWindow : Window
     private void UpdateStatusProgress()
     {
         var active = _queue.Where(item => item.State is "Queued" or "Transferring").ToList();
-        var known = active.Where(item => item.TotalBytes > 0).ToList();
         if (active.Count == 0)
         {
-            StatusProgressBar.IsIndeterminate = false; StatusProgressBar.Value = 0; StatusProgressText.Text = "Idle"; return;
+            StatusProgressBar.IsIndeterminate = false;
+            StatusProgressBar.Value = 0;
+            StatusProgressText.Text = "Idle";
+            TransferBytesText.Text = "—";
+            ElapsedText.Text = "Elapsed: —";
+            RemainingText.Text = "Remaining: —";
+            QueueTimeText.Text = "Queue: 00:00";
+            return;
         }
-        if (known.Count == 0)
+
+        var current = active.FirstOrDefault(item => item.State == "Transferring") ?? active[0];
+        var direction = current.Direction switch
         {
-            StatusProgressBar.IsIndeterminate = true; StatusProgressText.Text = $"{active.Count} active"; return;
-        }
-        var total = known.Sum(item => (double)item.TotalBytes);
-        var transferred = known.Sum(item => Math.Min((double)item.BytesTransferred, item.TotalBytes));
-        var percent = total <= 0 ? 0 : transferred * 100 / total;
-        var speed = active.Where(item => item.State == "Transferring").Sum(item => item.SpeedBytesPerSecond);
-        StatusProgressBar.IsIndeterminate = false; StatusProgressBar.Value = percent;
-        StatusProgressText.Text = speed > 0
-            ? $"{percent:0}%  {FormatSize(speed)}/s"
-            : $"{percent:0}%  {known.Count}/{active.Count}";
+            TransferDirection.Download or TransferDirection.DownloadFromLeft or TransferDirection.ApiDownload => "Receiving",
+            TransferDirection.Upload or TransferDirection.UploadToLeft => "Sending",
+            _ => "Relaying"
+        };
+        LegendText.Text = $"{direction}: {current.Name}";
+
+        var percent = current.TotalBytes > 0
+            ? Math.Clamp(current.BytesTransferred * 100d / current.TotalBytes, 0, 100)
+            : 0;
+        StatusProgressBar.IsIndeterminate = current.State == "Transferring" && current.TotalBytes <= 0;
+        StatusProgressBar.Value = percent;
+        StatusProgressText.Text = current.TotalBytes > 0 ? $"{percent:0}%" : current.State;
+        TransferBytesText.Text = current.SpeedBytesPerSecond > 0
+            ? $"{FormatSize(current.BytesTransferred)} ({FormatSize(current.SpeedBytesPerSecond)}/s)"
+            : current.TotalBytes > 0
+                ? $"{FormatSize(current.BytesTransferred)} / {FormatSize(current.TotalBytes)}"
+                : FormatSize(current.BytesTransferred);
+
+        var elapsed = current.StartedAt is { } started
+            ? DateTimeOffset.Now - started.ToLocalTime()
+            : TimeSpan.Zero;
+        ElapsedText.Text = $"Elapsed: {FormatTransferTime(elapsed)}";
+        var remainingBytes = Math.Max(0, current.TotalBytes - current.BytesTransferred);
+        RemainingText.Text = current.SpeedBytesPerSecond > 0 && current.TotalBytes > 0
+            ? $"Remaining: {FormatTransferTime(TimeSpan.FromSeconds(remainingBytes / (double)current.SpeedBytesPerSecond))}"
+            : "Remaining: —";
+        var oldestQueued = active.Where(item => item.QueuedAt is not null).MinBy(item => item.QueuedAt)?.QueuedAt;
+        QueueTimeText.Text = $"Queue: {FormatTransferTime(oldestQueued is { } queued ? DateTimeOffset.Now - queued.ToLocalTime() : TimeSpan.Zero)}";
+    }
+
+    private static string FormatTransferTime(TimeSpan value)
+    {
+        if (value < TimeSpan.Zero || !double.IsFinite(value.TotalSeconds)) return "—";
+        return value.TotalHours >= 1 ? $"{(int)value.TotalHours}:{value.Minutes:00}:{value.Seconds:00}" : $"{value.Minutes:00}:{value.Seconds:00}";
     }
 
     private string ScrollLegend(string text)
