@@ -7,6 +7,8 @@ All notable FluxFTP changes are documented here.
 ### Added
 
 - Added local drive selectors to both panes in Local mode for direct navigation between available Windows drives.
+- Added drag-and-drop copying between two Local panes, including multiple files and recursive folders.
+- Added Windows Explorer drag-and-drop into Local panes for copying and into Remote panes for queued uploads.
 
 ### Fixed
 

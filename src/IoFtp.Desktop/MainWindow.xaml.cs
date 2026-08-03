@@ -635,6 +635,12 @@ public partial class MainWindow : Window
     {
         var entries = RemoteList.SelectedItems.Cast<RemoteEntryView>().ToList();
         if (entries.Count == 0) return;
+        if (RightMode.SelectedIndex == 0 && LeftMode.SelectedIndex == 0)
+        {
+            await CopyLocalPathsAsync(entries.Select(entry => entry.FullPath), _localDirectory);
+            LoadLocalDirectory(_localDirectory);
+            return;
+        }
         foreach (var entry in entries)
         {
             if (entry.IsDirectory)
@@ -671,6 +677,12 @@ public partial class MainWindow : Window
     {
         var entries = LocalList.SelectedItems.Cast<LocalEntryView>().ToList();
         if (entries.Count == 0) return;
+        if (LeftMode.SelectedIndex == 0 && RightMode.SelectedIndex == 0)
+        {
+            await CopyLocalPathsAsync(entries.Select(entry => entry.FullPath), _rightLocalDirectory);
+            LoadRightLocalDirectory(_rightLocalDirectory);
+            return;
+        }
         foreach (var entry in entries)
         {
             if (entry.IsDirectory)
@@ -1103,8 +1115,109 @@ public partial class MainWindow : Window
             (e.GetPosition(this) - _dragStart).Length > SystemParameters.MinimumHorizontalDragDistance)
             DragDrop.DoDragDrop(RemoteList, "ioftp-right", DragDropEffects.Copy);
     }
-    private void LocalList_Drop(object sender, DragEventArgs e) { if (e.Data.GetData(DataFormats.Text) as string == "ioftp-right") Download_Click(sender, e); }
-    private void RemoteList_Drop(object sender, DragEventArgs e) { if (e.Data.GetData(DataFormats.Text) as string == "ioftp-left") Upload_Click(sender, e); }
+    private void FileList_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.Text)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void LocalList_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+            await HandleWindowsDropAsync(true, paths);
+        else if (e.Data.GetData(DataFormats.Text) as string == "ioftp-right")
+            Download_Click(sender, e);
+    }
+
+    private async void RemoteList_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+            await HandleWindowsDropAsync(false, paths);
+        else if (e.Data.GetData(DataFormats.Text) as string == "ioftp-left")
+            Upload_Click(sender, e);
+    }
+
+    private async Task HandleWindowsDropAsync(bool left, IReadOnlyList<string> paths)
+    {
+        if ((left ? LeftMode.SelectedIndex : RightMode.SelectedIndex) == 0)
+        {
+            await CopyLocalPathsAsync(paths, left ? _localDirectory : _rightLocalDirectory);
+            if (left) LoadLocalDirectory(_localDirectory); else LoadRightLocalDirectory(_rightLocalDirectory);
+            return;
+        }
+
+        var session = left ? _leftRemoteSession : _remoteSession;
+        if (session?.IsConnected != true)
+        {
+            MessageBox.Show("Connect the target Remote pane first.", "Drag and drop", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var remoteDirectory = left ? _leftRemoteDirectory : _remoteDirectory;
+        var direction = left ? TransferDirection.UploadToLeft : TransferDirection.Upload;
+        foreach (var path in paths.Where(path => File.Exists(path) || Directory.Exists(path)))
+        {
+            var name = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+            var destination = NormalizeRemotePath($"{remoteDirectory}/{name}");
+            if (Directory.Exists(path)) await QueueLocalDirectoryAsync(path, session, destination, direction);
+            else Schedule(AddQueue(name, path, destination, direction, new FileInfo(path).Length));
+        }
+    }
+
+    private async Task CopyLocalPathsAsync(IEnumerable<string> sourcePaths, string destinationDirectory)
+    {
+        var paths = sourcePaths.Where(path => File.Exists(path) || Directory.Exists(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (paths.Count == 0) return;
+        Directory.CreateDirectory(destinationDirectory);
+
+        var approved = new List<(string Source, string Destination, bool Directory)>();
+        foreach (var source in paths)
+        {
+            var destination = Path.Combine(destinationDirectory, Path.GetFileName(Path.TrimEndingDirectorySeparator(source)));
+            if (Path.GetFullPath(source).Equals(Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase)) continue;
+            var isDirectory = Directory.Exists(source);
+            if ((isDirectory && Directory.Exists(destination)) || (!isDirectory && File.Exists(destination)))
+            {
+                var action = isDirectory ? "Merge and overwrite files in" : "Replace";
+                if (MessageBox.Show($"{action} '{destination}'?", "Local copy", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                    continue;
+            }
+            approved.Add((source, destination, isDirectory));
+        }
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                foreach (var item in approved)
+                {
+                    if (!item.Directory) { File.Copy(item.Source, item.Destination, true); continue; }
+                    CopyDirectoryTree(item.Source, item.Destination);
+                }
+            });
+            LogText.AppendText($"{Environment.NewLine}Local copy completed: {approved.Count} item(s) to {destinationDirectory}");
+            LogText.ScrollToEnd();
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(FriendlyMessage(exception), "Local copy", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static void CopyDirectoryTree(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(destination, Path.GetRelativePath(source, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, true);
+        }
+    }
 
     private QueueEntryView AddQueue(string name, string source, string destination, TransferDirection direction, long totalBytes = 0, Guid? sourceProfileId = null, Guid? destinationProfileId = null)
     {

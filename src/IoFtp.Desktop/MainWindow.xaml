@@ -107,7 +107,8 @@
                     </DockPanel>
                     <ListView x:Name="LocalList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
                               PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="LocalList_MouseMove"
-                              PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True" Drop="LocalList_Drop">
+                              PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True"
+                              PreviewDragOver="FileList_DragOver" Drop="LocalList_Drop">
                         <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
                             <Style.Triggers><DataTrigger Binding="{Binding IsNuked}" Value="True"><Setter Property="Foreground" Value="#F07178"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger>
                             </Style.Triggers>
@@ -159,7 +160,8 @@
                     </DockPanel>
                     <ListView x:Name="RemoteList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"
                               PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" MouseMove="RemoteList_MouseMove"
-                              PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True" Drop="RemoteList_Drop">
+                              PreviewMouseRightButtonDown="FileList_PreviewMouseRightButtonDown" AllowDrop="True"
+                              PreviewDragOver="FileList_DragOver" Drop="RemoteList_Drop">
                         <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
                             <Style.Triggers><DataTrigger Binding="{Binding IsNuked}" Value="True"><Setter Property="Foreground" Value="#F07178"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger>
                             </Style.Triggers>
