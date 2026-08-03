@@ -66,7 +66,15 @@ public sealed class FtpRemoteSession : IRemoteSession
 
         if (profile.Protocol == TransferProtocol.FtpsExplicit)
         {
-            EnsureSuccess(await CommandAsync("AUTH TLS", cancellationToken), 234, 334);
+            var authResponse = await CommandAsync("AUTH TLS", cancellationToken);
+            if (authResponse.Code is not (234 or 334))
+            {
+                // Some older FTP daemons label explicit TLS as AUTH SSL even
+                // though the following SChannel handshake negotiates TLS 1.2.
+                // Prefer the modern command and retain this compatibility path.
+                authResponse = await CommandAsync("AUTH SSL", cancellationToken);
+            }
+            EnsureSuccess(authResponse, 234, 334);
             await EnableTlsAsync(cancellationToken);
             CreateTextStreams();
         }

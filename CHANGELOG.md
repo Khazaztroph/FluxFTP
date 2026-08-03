@@ -2,6 +2,12 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.33 — 2026-08-03
+
+### Added
+
+- Explicit FTPS now falls back from `AUTH TLS` to the legacy `AUTH SSL` command for compatible older FTP daemons while retaining TLS 1.2/1.3 SChannel encryption.
+
 ## 1.0.32 — 2026-08-03
 
 ### Fixed
