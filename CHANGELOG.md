@@ -2,6 +2,14 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.30 — 2026-08-03
+
+### Changed
+
+- Repositioned transfer progress, elapsed time, remaining time and queue duration at the right edge of the bottom status bar with responsive sizing for smaller windows.
+- Transfer Queue columns now adapt to the available width so job state, paths and progress remain visible.
+- Scrolling legend mode now uses the full width of the bottom bar instead of being limited to the left status field.
+
 ## 1.0.29 — 2026-08-03
 
 ### Changed

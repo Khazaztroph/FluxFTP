@@ -420,6 +420,34 @@ public partial class MainWindow : Window
         else if (ReferenceEquals(sender, RemoteList)) RightNameColumn.Width = width;
     }
 
+    private void QueueList_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var available = Math.Max(620, e.NewSize.Width - 28);
+        QueueStateColumn.Width = 82;
+        QueueProgressColumn.Width = Math.Clamp(available * 0.20, 170, 220);
+        var paths = Math.Max(420, available - QueueStateColumn.Width - QueueProgressColumn.Width);
+        QueueNameColumn.Width = Math.Max(140, paths * 0.30);
+        QueueSourceColumn.Width = Math.Max(140, paths * 0.35);
+        QueueDestinationColumn.Width = Math.Max(140, paths * 0.35);
+    }
+
+    private void LegendBar_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 1050;
+        var veryCompact = e.NewSize.Width < 850;
+        var scrolling = _settings.LegendBarMode.Equals("Scrolling", StringComparison.OrdinalIgnoreCase);
+
+        ElapsedColumn.Width = compact ? new GridLength(0) : new GridLength(125);
+        ElapsedText.Visibility = scrolling || compact ? Visibility.Collapsed : Visibility.Visible;
+        ElapsedSeparator.Visibility = scrolling || compact ? Visibility.Collapsed : Visibility.Visible;
+        QueueTimeColumn.Width = veryCompact ? new GridLength(0) : new GridLength(compact ? 92 : 115);
+        QueueTimeText.Visibility = scrolling || veryCompact ? Visibility.Collapsed : Visibility.Visible;
+        QueueTimeSeparator.Visibility = scrolling || veryCompact ? Visibility.Collapsed : Visibility.Visible;
+        TransferBytesColumn.Width = new GridLength(compact ? 160 : 205);
+        StatusProgressColumn.Width = new GridLength(compact ? 120 : 150);
+        RemainingColumn.Width = new GridLength(compact ? 120 : 145);
+    }
+
     private static void SortList(ListView list, GridViewColumnHeader header, ref string currentProperty,
         ref ListSortDirection currentDirection, params GridViewColumnHeader[] headers)
     {
@@ -1956,6 +1984,8 @@ public partial class MainWindow : Window
         var mode = _settings.LegendBarMode;
         LegendBar.Visibility = mode.Equals("Hidden", StringComparison.OrdinalIgnoreCase) ? Visibility.Collapsed : Visibility.Visible;
         if (LegendBar.Visibility != Visibility.Visible) return;
+        var scrolling = mode.Equals("Scrolling", StringComparison.OrdinalIgnoreCase);
+        ApplyLegendLayout(scrolling);
         var snapshot = GetMetricsSnapshot();
         var compact = $"Sites {snapshot.ConnectedSites}/{snapshot.ConfiguredSites}   Jobs {snapshot.ActiveJobs}/{_queue.Count}   Speed {snapshot.TotalSpeed}   Transferred {snapshot.Transferred}";
         LegendText.Text = mode switch
@@ -1965,7 +1995,28 @@ public partial class MainWindow : Window
             "Scrolling" => ScrollLegend(compact),
             _ => compact
         };
-        UpdateStatusProgress();
+        if (!scrolling) UpdateStatusProgress();
+    }
+
+    private void ApplyLegendLayout(bool scrolling)
+    {
+        Grid.SetColumnSpan(LegendText, scrolling ? 11 : 1);
+        Panel.SetZIndex(LegendText, scrolling ? 1 : 0);
+
+        var statusVisibility = scrolling ? Visibility.Collapsed : Visibility.Visible;
+        TransferBytesSeparator.Visibility = statusVisibility;
+        TransferBytesText.Visibility = statusVisibility;
+        ProgressSeparator.Visibility = statusVisibility;
+        StatusProgressPanel.Visibility = statusVisibility;
+        RemainingSeparator.Visibility = statusVisibility;
+        RemainingText.Visibility = statusVisibility;
+
+        var compact = LegendBar.ActualWidth < 1050;
+        var veryCompact = LegendBar.ActualWidth < 850;
+        ElapsedSeparator.Visibility = scrolling || compact ? Visibility.Collapsed : Visibility.Visible;
+        ElapsedText.Visibility = scrolling || compact ? Visibility.Collapsed : Visibility.Visible;
+        QueueTimeSeparator.Visibility = scrolling || veryCompact ? Visibility.Collapsed : Visibility.Visible;
+        QueueTimeText.Visibility = scrolling || veryCompact ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void UpdateStatusProgress()
