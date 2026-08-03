@@ -2,6 +2,18 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.31 — 2026-08-03
+
+### Added
+
+- Added local drive selectors to both panes in Local mode for direct navigation between available Windows drives.
+
+### Fixed
+
+- Local directory views now list the complete directory instead of stopping after 100 entries.
+- Drive-only paths such as `D:` now resolve to the drive root (`D:\`) consistently.
+- Local directory entries remain sorted with folders before files after changing drives.
+
 ## 1.0.30 — 2026-08-03
 
 ### Changed

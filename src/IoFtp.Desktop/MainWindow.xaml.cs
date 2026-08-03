@@ -55,6 +55,7 @@ public partial class MainWindow : Window
     private Point _dragStart;
     private bool _reloadingQuickSites;
     private bool _reloadingBookmarks;
+    private bool _reloadingDrives;
     private readonly SemaphoreSlim _leftNavigationGate = new(1, 1);
     private readonly SemaphoreSlim _rightNavigationGate = new(1, 1);
     private readonly System.Windows.Forms.NotifyIcon _trayIcon = new();
@@ -80,6 +81,7 @@ public partial class MainWindow : Window
         QueueList.ItemsSource = _queue;
         ReloadQuickSites(LeftQuickSites);
         ReloadQuickSites(RightQuickSites);
+        ReloadLocalDrives();
         LoadQueue();
         if (!string.IsNullOrWhiteSpace(_settings.LocalDownloadPath) && Directory.Exists(_settings.LocalDownloadPath)) _localDirectory = _settings.LocalDownloadPath;
         if (LeftMode.SelectedIndex == 0) LoadLocalDirectory(_localDirectory);
@@ -94,9 +96,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            var fullDirectory = Path.GetFullPath(directory);
+            var fullDirectory = NormalizeLocalDirectory(directory);
             LocalList.ItemsSource = Directory.EnumerateFileSystemEntries(fullDirectory)
-                .Take(100)
                 .Select(path =>
                 {
                     var isDirectory = Directory.Exists(path);
@@ -111,6 +112,7 @@ public partial class MainWindow : Window
                 .ToList();
             _localDirectory = fullDirectory;
             LocalPath.Text = fullDirectory;
+            SelectCurrentDrive(LeftDrives, fullDirectory);
         }
         catch (Exception exception)
         {
@@ -335,7 +337,8 @@ public partial class MainWindow : Window
     private void LeftMode_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
-        if (LeftMode.SelectedIndex == 0) { LeftSiteTitle.Text = "LOCAL"; LoadLocalDirectory(_localDirectory); }
+        LeftDrives.Visibility = LeftMode.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (LeftMode.SelectedIndex == 0) { LeftSiteTitle.Text = "LOCAL"; ReloadLocalDrives(); LoadLocalDirectory(_localDirectory); }
         else
         {
             LeftSiteTitle.Text = _leftProfile is null ? "REMOTE SITE" : $"REMOTE — {_leftProfile.Name.ToUpperInvariant()}";
@@ -349,7 +352,8 @@ public partial class MainWindow : Window
     private void RightMode_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
-        if (RightMode.SelectedIndex == 0) { RemoteSiteTitle.Text = "LOCAL"; LoadRightLocalDirectory(_rightLocalDirectory); }
+        RightDrives.Visibility = RightMode.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (RightMode.SelectedIndex == 0) { RemoteSiteTitle.Text = "LOCAL"; ReloadLocalDrives(); LoadRightLocalDirectory(_rightLocalDirectory); }
         else
         {
             RemoteSiteTitle.Text = _rightProfile is null ? "REMOTE SITE" : $"REMOTE — {_rightProfile.Name.ToUpperInvariant()}";
@@ -485,15 +489,54 @@ public partial class MainWindow : Window
     {
         try
         {
-            var full = Path.GetFullPath(directory);
-            RemoteList.ItemsSource = Directory.EnumerateFileSystemEntries(full).Take(100).Select(path =>
+            var full = NormalizeLocalDirectory(directory);
+            RemoteList.ItemsSource = Directory.EnumerateFileSystemEntries(full).Select(path =>
             {
                 var folder = Directory.Exists(path); var modified = folder ? Directory.GetLastWriteTime(path) : File.GetLastWriteTime(path);
                 return new RemoteEntryView(Path.GetFileName(path), folder ? "Folder" : FormatSize(new FileInfo(path).Length), modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), "", false, path, folder);
             }).OrderByDescending(item => item.IsDirectory).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-            _rightLocalDirectory = full; RemotePath.Text = full;
+            _rightLocalDirectory = full; RemotePath.Text = full; SelectCurrentDrive(RightDrives, full);
         }
         catch (Exception exception) { LogText.AppendText($"{Environment.NewLine}Local browse error: {exception.Message}"); }
+    }
+
+    private static string NormalizeLocalDirectory(string directory)
+    {
+        var value = Environment.ExpandEnvironmentVariables(directory.Trim());
+        if (Regex.IsMatch(value, @"^[A-Za-z]:$")) value += Path.DirectorySeparatorChar;
+        return Path.GetFullPath(value);
+    }
+
+    private void ReloadLocalDrives()
+    {
+        _reloadingDrives = true;
+        try
+        {
+            var drives = DriveInfo.GetDrives().Select(drive => drive.RootDirectory.FullName).ToList();
+            LeftDrives.ItemsSource = drives;
+            RightDrives.ItemsSource = drives;
+            SelectCurrentDrive(LeftDrives, _localDirectory);
+            SelectCurrentDrive(RightDrives, _rightLocalDirectory);
+        }
+        finally { _reloadingDrives = false; }
+    }
+
+    private static void SelectCurrentDrive(ComboBox combo, string path)
+    {
+        var root = Path.GetPathRoot(Path.GetFullPath(path));
+        if (!string.IsNullOrWhiteSpace(root)) combo.SelectedItem = root;
+    }
+
+    private void LeftDrives_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_reloadingDrives && LeftMode.SelectedIndex == 0 && LeftDrives.SelectedItem is string drive)
+            LoadLocalDirectory(drive);
+    }
+
+    private void RightDrives_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_reloadingDrives && RightMode.SelectedIndex == 0 && RightDrives.SelectedItem is string drive)
+            LoadRightLocalDirectory(drive);
     }
 
     private void ShowRemoteEntries(string path, IReadOnlyList<RemoteEntry> entries)

@@ -100,6 +100,9 @@
                         <Button DockPanel.Dock="Right" Content="Up" Click="LocalUp_Click" Margin="5,0,0,0" Padding="10,4"/>
                         <ComboBox x:Name="LeftBookmarks" DockPanel.Dock="Right" Width="150" Margin="5,0,0,0"
                                   DisplayMemberPath="Name" SelectionChanged="LeftBookmarks_SelectionChanged" ToolTip="Imported FTPRush bookmarks"/>
+                        <ComboBox x:Name="LeftDrives" DockPanel.Dock="Left" Width="82" Margin="0,0,5,0"
+                                  Visibility="Collapsed" SelectionChanged="LeftDrives_SelectionChanged"
+                                  ToolTip="Select local drive"/>
                         <TextBox x:Name="LocalPath" Text="/" KeyDown="LocalPath_KeyDown"/>
                     </DockPanel>
                     <ListView x:Name="LocalList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
@@ -149,6 +152,9 @@
                         <Button DockPanel.Dock="Right" Content="Up" Click="RemoteUp_Click" Margin="5,0,0,0" Padding="10,4"/>
                         <ComboBox x:Name="RightBookmarks" DockPanel.Dock="Right" Width="150" Margin="5,0,0,0"
                                   DisplayMemberPath="Name" SelectionChanged="RightBookmarks_SelectionChanged" ToolTip="Imported FTPRush bookmarks"/>
+                        <ComboBox x:Name="RightDrives" DockPanel.Dock="Left" Width="82" Margin="0,0,5,0"
+                                  Visibility="Collapsed" SelectionChanged="RightDrives_SelectionChanged"
+                                  ToolTip="Select local drive"/>
                         <TextBox x:Name="RemotePath" Text="/" KeyDown="RemotePath_KeyDown"/>
                     </DockPanel>
                     <ListView x:Name="RemoteList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"
