@@ -931,6 +931,58 @@ public partial class MainWindow : Window
         if (RemoteList.SelectedItem is RemoteEntryView item) await OpenOrViewAsync(false, item.FullPath, item.Name, item.IsDirectory);
     }
 
+    private async void ViewInternalLeft_Click(object sender, RoutedEventArgs e)
+    {
+        if (LocalList.SelectedItem is LocalEntryView item)
+            await ViewInternallyAsync(true, item.FullPath, item.Name, item.IsDirectory);
+    }
+
+    private async void ViewInternalRight_Click(object sender, RoutedEventArgs e)
+    {
+        if (RemoteList.SelectedItem is RemoteEntryView item)
+            await ViewInternallyAsync(false, item.FullPath, item.Name, item.IsDirectory);
+    }
+
+    private async Task ViewInternallyAsync(bool left, string path, string name, bool directory)
+    {
+        if (directory) { await OpenOrViewAsync(left, path, name, true); return; }
+        try
+        {
+            var local = (left && LeftMode.SelectedIndex == 0) || (!left && RightMode.SelectedIndex == 0);
+            byte[] content;
+            if (local)
+            {
+                content = await ReadPreviewBytesAsync(path);
+            }
+            else
+            {
+                var session = left ? _leftRemoteSession : _remoteSession;
+                if (session?.IsConnected != true) return;
+                await using var output = new MemoryStream();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                await session.DownloadAsync(path, output, 0, null, timeout.Token);
+                if (output.Length > FileViewerWindow.MaximumFileSize)
+                    throw new IOException($"The file is larger than the internal viewer limit of {FileViewerWindow.MaximumFileSize / 1024 / 1024} MB.");
+                content = output.ToArray();
+                LogText.AppendText($"{Environment.NewLine}Internal preview downloaded: {path}");
+                LogText.ScrollToEnd();
+            }
+            new FileViewerWindow(name, path, content) { Owner = this }.Show();
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(FriendlyMessage(exception), "Internal file viewer", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static async Task<byte[]> ReadPreviewBytesAsync(string path)
+    {
+        var info = new FileInfo(path);
+        if (info.Length > FileViewerWindow.MaximumFileSize)
+            throw new IOException($"The file is larger than the internal viewer limit of {FileViewerWindow.MaximumFileSize / 1024 / 1024} MB.");
+        return await File.ReadAllBytesAsync(path);
+    }
+
     private async Task OpenOrViewAsync(bool left, string path, string name, bool directory)
     {
         try

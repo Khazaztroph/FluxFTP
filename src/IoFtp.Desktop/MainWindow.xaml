@@ -116,7 +116,8 @@
                         </Style></ListView.ItemContainerStyle>
                         <ListView.ContextMenu><ContextMenu>
                             <MenuItem Header="Transfer now →" Click="TransferLeftNow_Click"/><MenuItem Header="Add to queue →" Click="QueueLeft_Click"/><Separator/>
-                            <MenuItem Header="Open / View" Click="ViewLeft_Click"/>
+                            <MenuItem Header="View internally" Click="ViewInternalLeft_Click"/>
+                            <MenuItem Header="Open externally" Click="ViewLeft_Click"/>
                             <MenuItem Header="Create folder..." Click="CreateFolderLeft_Click"/><MenuItem Header="Create folder and enter..." Click="CreateFolderAndEnterLeft_Click"/><MenuItem Header="Create empty file..." Click="CreateFileLeft_Click"/>
                             <Separator/><MenuItem Header="Rename..." Click="RenameLeft_Click"/><MenuItem Header="Delete" Click="DeleteLeft_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodLeft_Click"/><Separator/>
                             <MenuItem Header="Copy name" Click="CopyNameLeft_Click"/><MenuItem Header="Copy full path" Click="CopyPathLeft_Click"/><MenuItem Header="Copy FTP URL" Click="CopyUrlLeft_Click"/><MenuItem Header="Commands..." Click="CommandsLeft_Click"/><Separator/><MenuItem Header="Refresh" Click="RefreshLeft_Click" InputGestureText="F5"/>
@@ -170,7 +171,8 @@
                         </Style></ListView.ItemContainerStyle>
                         <ListView.ContextMenu><ContextMenu>
                             <MenuItem Header="← Transfer now" Click="TransferRightNow_Click"/><MenuItem Header="← Add to queue" Click="QueueRight_Click"/><Separator/>
-                            <MenuItem Header="Open / View" Click="ViewRight_Click"/>
+                            <MenuItem Header="View internally" Click="ViewInternalRight_Click"/>
+                            <MenuItem Header="Open externally" Click="ViewRight_Click"/>
                             <MenuItem Header="Create folder..." Click="CreateFolderRight_Click"/><MenuItem Header="Create folder and enter..." Click="CreateFolderAndEnterRight_Click"/><MenuItem Header="Create empty file..." Click="CreateFileRight_Click"/>
                             <Separator/><MenuItem Header="Rename..." Click="RenameRight_Click"/><MenuItem Header="Delete" Click="DeleteRight_Click" InputGestureText="Del"/><MenuItem Header="Attributes / CHMOD..." Click="ChmodRight_Click"/><Separator/>
                             <MenuItem Header="Copy name" Click="CopyNameRight_Click"/><MenuItem Header="Copy full path" Click="CopyPathRight_Click"/><MenuItem Header="Copy FTP URL" Click="CopyUrlRight_Click"/><MenuItem Header="Commands..." Click="CommandsRight_Click"/><Separator/><MenuItem Header="Refresh" Click="RefreshRight_Click" InputGestureText="F5"/>

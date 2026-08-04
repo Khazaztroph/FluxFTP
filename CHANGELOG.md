@@ -2,6 +2,19 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.35 — 2026-08-04
+
+### Added
+
+- Added a dark internal file viewer for local and remote files with automatic encoding detection, selectable UTF-8, Windows-1252, IBM437/DOS, ISO-8859-1, ASCII and UTF-16 encodings, plus optional word wrapping.
+- Added a separate `Open externally` action that downloads remote files to the preview cache and opens them through their Windows file association.
+- NFO files that are not valid UTF-8 now automatically use IBM437 so classic scene artwork is rendered correctly.
+
+### Changed
+
+- Reworked context menus to remove the standard white WPF icon gutter, prevent clipped labels and match the dark FluxFTP interface.
+- Added dark themed horizontal and vertical scrollbars throughout the desktop client.
+
 ## 1.0.34 — 2026-08-03
 
 ### Added
