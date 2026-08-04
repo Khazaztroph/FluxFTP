@@ -96,12 +96,16 @@
     <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="{StaticResource WindowBrush}"/>
         <Setter Property="Width" Value="13"/>
-        <Setter Property="Height" Value="13"/>
+        <Setter Property="Height" Value="Auto"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
                     <Grid Background="{TemplateBinding Background}">
-                        <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="True">
+                        <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}"
+                               Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}"
+                               ViewportSize="{TemplateBinding ViewportSize}"
+                               Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                               IsDirectionReversed="True">
                             <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageUpCommand" Template="{StaticResource ScrollPageButton}"/></Track.DecreaseRepeatButton>
                             <Track.Thumb><Thumb Template="{StaticResource ScrollThumbTemplate}"/></Track.Thumb>
                             <Track.IncreaseRepeatButton><RepeatButton Command="ScrollBar.PageDownCommand" Template="{StaticResource ScrollPageButton}"/></Track.IncreaseRepeatButton>

@@ -2,6 +2,13 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.36 — 2026-08-05
+
+### Fixed
+
+- Dark scrollbar tracks now bind correctly to the current value, maximum and viewport size, so dragging the thumb updates the list position accurately.
+- Vertical scrollbars now use the full available height instead of being incorrectly constrained to 13 pixels; horizontal scrollbars retain a compact 13-pixel height.
+
 ## 1.0.35 — 2026-08-04
 
 ### Added
