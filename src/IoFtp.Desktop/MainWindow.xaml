@@ -103,7 +103,12 @@
                         <ComboBox x:Name="LeftDrives" DockPanel.Dock="Left" Width="82" Margin="0,0,5,0"
                                   Visibility="Collapsed" SelectionChanged="LeftDrives_SelectionChanged"
                                   ToolTip="Select local drive"/>
-                        <TextBox x:Name="LocalPath" Text="/" KeyDown="LocalPath_KeyDown"/>
+                        <Button DockPanel.Dock="Left" Content="&#x25C0;" Click="LeftBack_Click" Width="32" Margin="0,0,3,0" ToolTip="Back"/>
+                        <Button DockPanel.Dock="Left" Content="&#x25B6;" Click="LeftForward_Click" Width="32" Margin="0,0,3,0" ToolTip="Forward"/>
+                        <Button DockPanel.Dock="Left" Content="&#x21BB;" Click="RefreshLeft_Click" Width="32" Margin="0,0,5,0" ToolTip="Refresh (F5)"/>
+                        <ComboBox x:Name="LocalPath" IsEditable="True" IsTextSearchEnabled="False" Text="/"
+                                  KeyDown="LocalPath_KeyDown" DropDownOpened="Path_DropDownOpened"
+                                  DropDownClosed="LocalPath_DropDownClosed" ToolTip="Path history and common locations"/>
                     </DockPanel>
                     <ListView x:Name="LocalList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="LocalList_DoubleClick" SizeChanged="FileList_SizeChanged"
                               PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" PreviewMouseLeftButtonUp="FileList_PreviewMouseLeftButtonUp"
@@ -158,7 +163,12 @@
                         <ComboBox x:Name="RightDrives" DockPanel.Dock="Left" Width="82" Margin="0,0,5,0"
                                   Visibility="Collapsed" SelectionChanged="RightDrives_SelectionChanged"
                                   ToolTip="Select local drive"/>
-                        <TextBox x:Name="RemotePath" Text="/" KeyDown="RemotePath_KeyDown"/>
+                        <Button DockPanel.Dock="Left" Content="&#x25C0;" Click="RightBack_Click" Width="32" Margin="0,0,3,0" ToolTip="Back"/>
+                        <Button DockPanel.Dock="Left" Content="&#x25B6;" Click="RightForward_Click" Width="32" Margin="0,0,3,0" ToolTip="Forward"/>
+                        <Button DockPanel.Dock="Left" Content="&#x21BB;" Click="RefreshRight_Click" Width="32" Margin="0,0,5,0" ToolTip="Refresh (F5)"/>
+                        <ComboBox x:Name="RemotePath" IsEditable="True" IsTextSearchEnabled="False" Text="/"
+                                  KeyDown="RemotePath_KeyDown" DropDownOpened="Path_DropDownOpened"
+                                  DropDownClosed="RemotePath_DropDownClosed" ToolTip="Path history and common locations"/>
                     </DockPanel>
                     <ListView x:Name="RemoteList" Margin="8,0,8,8" SelectionMode="Extended" MouseDoubleClick="RemoteList_DoubleClick" SizeChanged="FileList_SizeChanged"
                               PreviewMouseLeftButtonDown="FileList_PreviewMouseLeftButtonDown" PreviewMouseLeftButtonUp="FileList_PreviewMouseLeftButtonUp"

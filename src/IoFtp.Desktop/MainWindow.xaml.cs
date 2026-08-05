@@ -58,6 +58,15 @@ public partial class MainWindow : Window
     private bool _reloadingQuickSites;
     private bool _reloadingBookmarks;
     private bool _reloadingDrives;
+    private bool _reloadingPathChoices;
+    private bool _leftHistoryNavigation;
+    private bool _rightHistoryNavigation;
+    private readonly Stack<string> _leftBackHistory = new();
+    private readonly Stack<string> _leftForwardHistory = new();
+    private readonly Stack<string> _rightBackHistory = new();
+    private readonly Stack<string> _rightForwardHistory = new();
+    private readonly List<string> _leftRecentPaths = [];
+    private readonly List<string> _rightRecentPaths = [];
     private readonly SemaphoreSlim _leftNavigationGate = new(1, 1);
     private readonly SemaphoreSlim _rightNavigationGate = new(1, 1);
     private readonly System.Windows.Forms.NotifyIcon _trayIcon = new();
@@ -98,6 +107,7 @@ public partial class MainWindow : Window
     {
         try
         {
+            var previous = _localDirectory;
             var fullDirectory = NormalizeLocalDirectory(directory);
             LocalList.ItemsSource = Directory.EnumerateFileSystemEntries(fullDirectory)
                 .Select(path =>
@@ -115,6 +125,7 @@ public partial class MainWindow : Window
             _localDirectory = fullDirectory;
             LocalPath.Text = fullDirectory;
             SelectCurrentDrive(LeftDrives, fullDirectory);
+            CommitNavigation(true, previous, fullDirectory);
         }
         catch (Exception exception)
         {
@@ -344,6 +355,7 @@ public partial class MainWindow : Window
     private void LeftMode_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
+        _leftBackHistory.Clear(); _leftForwardHistory.Clear(); _leftRecentPaths.Clear(); _leftHistoryNavigation = false;
         LeftDrives.Visibility = LeftMode.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (LeftMode.SelectedIndex == 0) { LeftSiteTitle.Text = "LOCAL"; ReloadLocalDrives(); LoadLocalDirectory(_localDirectory); }
         else
@@ -359,6 +371,7 @@ public partial class MainWindow : Window
     private void RightMode_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
+        _rightBackHistory.Clear(); _rightForwardHistory.Clear(); _rightRecentPaths.Clear(); _rightHistoryNavigation = false;
         RightDrives.Visibility = RightMode.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (RightMode.SelectedIndex == 0) { RemoteSiteTitle.Text = "LOCAL"; ReloadLocalDrives(); LoadRightLocalDirectory(_rightLocalDirectory); }
         else
@@ -485,8 +498,10 @@ public partial class MainWindow : Window
         {
             if (_leftRemoteSession?.IsConnected != true) return;
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var previous = _leftRemoteDirectory;
             var entries = await _leftRemoteSession.ListAsync(NormalizeRemotePath(path), timeout.Token);
             ShowLeftRemoteEntries(path, entries);
+            CommitNavigation(true, previous, _leftRemoteDirectory);
         }
         catch (Exception exception) { LogText.AppendText($"{Environment.NewLine}Remote: {FriendlyMessage(exception)}"); }
         finally { _leftNavigationGate.Release(); }
@@ -496,6 +511,7 @@ public partial class MainWindow : Window
     {
         try
         {
+            var previous = _rightLocalDirectory;
             var full = NormalizeLocalDirectory(directory);
             RemoteList.ItemsSource = Directory.EnumerateFileSystemEntries(full).Select(path =>
             {
@@ -503,6 +519,7 @@ public partial class MainWindow : Window
                 return new RemoteEntryView(Path.GetFileName(path), folder ? "Folder" : FormatSize(new FileInfo(path).Length), modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), "", false, path, folder);
             }).OrderByDescending(item => item.IsDirectory).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             _rightLocalDirectory = full; RemotePath.Text = full; SelectCurrentDrive(RightDrives, full);
+            CommitNavigation(false, previous, full);
         }
         catch (Exception exception) { LogText.AppendText($"{Environment.NewLine}Local browse error: {exception.Message}"); }
     }
@@ -574,8 +591,10 @@ public partial class MainWindow : Window
         {
             if (_remoteSession?.IsConnected != true) return;
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var previous = _remoteDirectory;
             var entries = await _remoteSession.ListAsync(normalized, timeout.Token);
             ShowRemoteEntries(normalized, entries);
+            CommitNavigation(false, previous, _remoteDirectory);
             ConnectionStatus.Text = $"Connected — {entries.Count} entries";
         }
         catch (Exception exception)
@@ -678,6 +697,125 @@ public partial class MainWindow : Window
             Schedule(queueEntry);
         }
         if (LeftMode.SelectedIndex == 0) LoadLocalDirectory(_localDirectory); else await NavigateLeftRemoteAsync(_leftRemoteDirectory);
+    }
+
+    private void CommitNavigation(bool left, string previous, string current)
+    {
+        if (string.Equals(previous, current, StringComparison.OrdinalIgnoreCase))
+        {
+            AddRecentPath(left, current);
+            return;
+        }
+
+        if (left)
+        {
+            if (_leftHistoryNavigation) _leftHistoryNavigation = false;
+            else { _leftBackHistory.Push(previous); _leftForwardHistory.Clear(); }
+        }
+        else
+        {
+            if (_rightHistoryNavigation) _rightHistoryNavigation = false;
+            else { _rightBackHistory.Push(previous); _rightForwardHistory.Clear(); }
+        }
+        AddRecentPath(left, current);
+    }
+
+    private void AddRecentPath(bool left, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        var recent = left ? _leftRecentPaths : _rightRecentPaths;
+        recent.RemoveAll(item => item.Equals(path, StringComparison.OrdinalIgnoreCase));
+        recent.Insert(0, path);
+        if (recent.Count > 20) recent.RemoveRange(20, recent.Count - 20);
+    }
+
+    private async Task NavigatePaneAsync(bool left, string path, bool fromHistory = false)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (left)
+        {
+            _leftHistoryNavigation = fromHistory;
+            if (LeftMode.SelectedIndex == 0) LoadLocalDirectory(path); else await NavigateLeftRemoteAsync(path);
+        }
+        else
+        {
+            _rightHistoryNavigation = fromHistory;
+            if (RightMode.SelectedIndex == 0) LoadRightLocalDirectory(path); else await NavigateRemoteAsync(path);
+        }
+    }
+
+    private async void LeftBack_Click(object sender, RoutedEventArgs e)
+    {
+        if (_leftBackHistory.Count == 0) return;
+        var current = LeftMode.SelectedIndex == 0 ? _localDirectory : _leftRemoteDirectory;
+        var target = _leftBackHistory.Pop();
+        _leftForwardHistory.Push(current);
+        await NavigatePaneAsync(true, target, true);
+    }
+
+    private async void LeftForward_Click(object sender, RoutedEventArgs e)
+    {
+        if (_leftForwardHistory.Count == 0) return;
+        var current = LeftMode.SelectedIndex == 0 ? _localDirectory : _leftRemoteDirectory;
+        var target = _leftForwardHistory.Pop();
+        _leftBackHistory.Push(current);
+        await NavigatePaneAsync(true, target, true);
+    }
+
+    private async void RightBack_Click(object sender, RoutedEventArgs e)
+    {
+        if (_rightBackHistory.Count == 0) return;
+        var current = RightMode.SelectedIndex == 0 ? _rightLocalDirectory : _remoteDirectory;
+        var target = _rightBackHistory.Pop();
+        _rightForwardHistory.Push(current);
+        await NavigatePaneAsync(false, target, true);
+    }
+
+    private async void RightForward_Click(object sender, RoutedEventArgs e)
+    {
+        if (_rightForwardHistory.Count == 0) return;
+        var current = RightMode.SelectedIndex == 0 ? _rightLocalDirectory : _remoteDirectory;
+        var target = _rightForwardHistory.Pop();
+        _rightBackHistory.Push(current);
+        await NavigatePaneAsync(false, target, true);
+    }
+
+    private void Path_DropDownOpened(object sender, EventArgs e)
+    {
+        if (sender is not ComboBox combo) return;
+        var left = ReferenceEquals(combo, LocalPath);
+        var local = left ? LeftMode.SelectedIndex == 0 : RightMode.SelectedIndex == 0;
+        var current = combo.Text;
+        var choices = new List<string>();
+        if (local)
+        {
+            choices.AddRange(DriveInfo.GetDrives().Where(drive => drive.IsReady).Select(drive => drive.RootDirectory.FullName));
+            choices.AddRange(new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
+            }.Where(Directory.Exists));
+        }
+        choices.AddRange(left ? _leftRecentPaths : _rightRecentPaths);
+        _reloadingPathChoices = true;
+        combo.ItemsSource = choices.Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        combo.Text = current;
+        _reloadingPathChoices = false;
+    }
+
+    private async void LocalPath_DropDownClosed(object sender, EventArgs e)
+    {
+        var current = LeftMode.SelectedIndex == 0 ? _localDirectory : _leftRemoteDirectory;
+        if (!_reloadingPathChoices && LocalPath.SelectedItem is string path && !path.Equals(current, StringComparison.OrdinalIgnoreCase))
+            await NavigatePaneAsync(true, path);
+    }
+
+    private async void RemotePath_DropDownClosed(object sender, EventArgs e)
+    {
+        var current = RightMode.SelectedIndex == 0 ? _rightLocalDirectory : _remoteDirectory;
+        if (!_reloadingPathChoices && RemotePath.SelectedItem is string path && !path.Equals(current, StringComparison.OrdinalIgnoreCase))
+            await NavigatePaneAsync(false, path);
     }
 
     private async void Upload_Click(object sender, RoutedEventArgs e)

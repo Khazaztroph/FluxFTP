@@ -2,6 +2,18 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.38 — 2026-08-05
+
+### Added
+
+- Added RushFTP-style Back, Forward, Up and Refresh navigation controls to both file panes.
+- Replaced the plain path fields with editable path-history dropdowns for fast navigation in both Local and Remote mode.
+- Local path dropdowns now include available drives, Desktop, Documents, Downloads and up to 20 recently visited folders.
+
+### Changed
+
+- Navigation history is maintained independently for the left and right panes and safely reset when switching between Local and Remote mode.
+
 ## 1.0.37 — 2026-08-05
 
 ### Added
