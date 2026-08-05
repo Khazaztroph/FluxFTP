@@ -9,6 +9,7 @@ public partial class ConnectionDialog : Window
 {
     private readonly Guid _id;
     private readonly SiteOptions? _options;
+    private readonly ProxyConfiguration? _proxy;
     private readonly string _sshHostKeyFingerprint;
     public ConnectionProfile? Profile { get; private set; }
 
@@ -29,6 +30,7 @@ public partial class ConnectionDialog : Window
         };
         _id = profile?.Id ?? Guid.NewGuid();
         _options = profile?.Options;
+        _proxy = profile?.Proxy;
         _sshHostKeyFingerprint = profile?.SshHostKeyFingerprint ?? "";
         if (profile is not null)
         {
@@ -100,7 +102,7 @@ public partial class ConnectionDialog : Window
         username = username.TrimStart('/');
         if (killGhost && username.Length > 0) username = "/" + username;
         Profile = new ConnectionProfile(_id, name, primary.Host, primary.Port, username, ((ProtocolChoice)ProtocolBox.SelectedItem).Protocol,
-            PasswordBox.Password, AllowInvalidCertificateBox.IsChecked == true, listingMode, options,
+            PasswordBox.Password, AllowInvalidCertificateBox.IsChecked == true, listingMode, options, _proxy,
             AlternateAddresses: string.Join(' ', addresses.Skip(1).Select(address => address.ToString())), Description: DescriptionBox.Text.Trim(),
             SshHostKeyFingerprint: _sshHostKeyFingerprint);
         DialogResult = true;

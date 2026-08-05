@@ -244,10 +244,15 @@ public partial class MainWindow : Window
     private void ClearLog_Click(object sender, RoutedEventArgs e) =>
         LogText.Text = $"FluxFTP {UpdateCheckService.CurrentVersion} log cleared at {DateTime.Now:yyyy-MM-dd HH:mm:ss}.";
 
-    private ConnectionProfile ApplyGlobalProxy(ConnectionProfile profile) => _settings.ProxyType == ProxyType.None ? profile with { Proxy = null } : profile with
+    private ConnectionProfile ApplyGlobalProxy(ConnectionProfile profile)
     {
-        Proxy = new ProxyConfiguration(_settings.ProxyType, _settings.ProxyHost, _settings.ProxyPort, _settings.ProxyUsername, _settings.ProxyPassword, _settings.ProxyDns, _settings.ProxyDataConnections)
-    };
+        if (profile.Proxy is not null) return profile;
+        return _settings.ProxyType == ProxyType.None ? profile : profile with
+        {
+            Proxy = new ProxyConfiguration(_settings.ProxyType, _settings.ProxyHost, _settings.ProxyPort,
+                _settings.ProxyUsername, _settings.ProxyPassword, _settings.ProxyDns, _settings.ProxyDataConnections)
+        };
+    }
 
     private static IReadOnlySet<Guid> ResolveSiteNames(string value)
     {

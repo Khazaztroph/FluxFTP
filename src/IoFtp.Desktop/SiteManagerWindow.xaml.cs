@@ -66,7 +66,7 @@ public partial class SiteManagerWindow : Window
         if (SitesList.SelectedItem is not ConnectionProfile profile) return;
         var dialog = new SiteOptionsWindow(profile) { Owner = this };
         if (dialog.ShowDialog() == true && dialog.Options is not null)
-        { var index = _profiles.IndexOf(profile); _profiles[index] = profile with { Options = dialog.Options }; Save(); SitesList.SelectedIndex = index; }
+        { var index = _profiles.IndexOf(profile); _profiles[index] = profile with { Options = dialog.Options, Proxy = dialog.SiteProxy }; Save(); SitesList.SelectedIndex = index; }
     }
 
     private void Connect_Click(object sender, RoutedEventArgs e)

@@ -73,6 +73,17 @@ internal sealed class ProfileStore
             Write(text, "Affils", options.Affils);
             Write(text, "FxpProtection", options.FxpProtection);
             Write(text, "FxpDataRole", options.FxpDataRole);
+            Write(text, "ProxyMode", profile.Proxy is null ? "Inherit" : profile.Proxy.Type == ProxyType.None ? "None" : "Custom");
+            if (profile.Proxy is not null)
+            {
+                Write(text, "ProxyType", profile.Proxy.Type);
+                Write(text, "ProxyHost", profile.Proxy.Host);
+                Write(text, "ProxyPort", profile.Proxy.Port);
+                Write(text, "ProxyUsername", profile.Proxy.Username);
+                Write(text, "ProxyPassword", Protect(profile.Proxy.Password));
+                Write(text, "ProxyDns", profile.Proxy.ProxyDns);
+                Write(text, "ProxyDataConnections", profile.Proxy.UseForData);
+            }
         }
 
         var temporaryPath = _path + ".tmp";
@@ -97,9 +108,15 @@ internal sealed class ProfileStore
                 Get(values, "BlockTransfersFrom"), Get(values, "BlockTransfersTo"), Bool(values, "SecureFileListings", true), Bool(values, "NeedsPret"), Bool(values, "CeprSupported"), Bool(values, "UseXdupe"), Get(values, "Affils"),
                 EnumValue(values, "FxpProtection", FxpProtectionMode.AutoSecure),
                 EnumValue(values, "FxpDataRole", FxpDataRole.Auto));
+            var proxyMode = Get(values, "ProxyMode", "Inherit");
+            ProxyConfiguration? proxy = proxyMode.Equals("Inherit", StringComparison.OrdinalIgnoreCase) ? null
+                : proxyMode.Equals("None", StringComparison.OrdinalIgnoreCase) ? new ProxyConfiguration(ProxyType.None)
+                : new ProxyConfiguration(EnumValue(values, "ProxyType", ProxyType.Socks5), Get(values, "ProxyHost"),
+                    Int(values, "ProxyPort", 1080), Get(values, "ProxyUsername"), Unprotect(Get(values, "ProxyPassword")),
+                    Bool(values, "ProxyDns", true), Bool(values, "ProxyDataConnections", true));
             result.Add(new ConnectionProfile(id, Get(values, "Name", "Site"), Get(values, "Host"), Int(values, "Port", 21),
                 Get(values, "Username"), EnumValue(values, "Protocol", TransferProtocol.Ftp), Unprotect(Get(values, "Password")),
-                Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.Auto), options,
+                Bool(values, "AllowInvalidCertificate"), EnumValue(values, "ListingMode", DirectoryListingMode.Auto), options, proxy,
                 AlternateAddresses: Get(values, "AlternateAddresses"), Description: Get(values, "Description"),
                 SshHostKeyFingerprint: Get(values, "SshHostKeyFingerprint")));
         }

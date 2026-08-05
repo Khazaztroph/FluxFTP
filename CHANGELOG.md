@@ -2,6 +2,18 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.37 — 2026-08-05
+
+### Added
+
+- Added per-site proxy settings under Site Manager with `Use global proxy`, explicit `No proxy`, SOCKS5, SOCKS4 and HTTP CONNECT modes.
+- Per-site proxy settings include host, port, credentials, proxy-side DNS resolution and optional proxying of passive FTP data connections.
+
+### Changed
+
+- Existing sites inherit Global Settings by default, while an explicit per-site proxy or direct-connection override takes precedence for browsing, transfers, worker slots, API jobs and reconnects.
+- Per-site proxy passwords are stored in `FluxFTP-sites.ini` using Windows DPAPI protection for the current user.
+
 ## 1.0.36 — 2026-08-05
 
 ### Fixed
