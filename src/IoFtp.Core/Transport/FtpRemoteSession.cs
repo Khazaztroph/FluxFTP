@@ -323,15 +323,30 @@ public sealed class FtpRemoteSession : IRemoteSession
         // the peer has actually opened the negotiated data connection; awaiting
         // STOR before sending RETR can therefore deadlock until a 425 timeout.
         var starts = await MeasureFxpStageAsync("STOR/RETR", async () => await Task.WhenAll(
-            destination.CommandAsync($"STOR {destinationPath}", cancellationToken),
-            CommandAsync($"RETR {sourcePath}", cancellationToken)));
-        EnsureSuccess(starts[0], 125, 150);
-        EnsureSuccess(starts[1], 125, 150);
+            destination.StartTransferCommandAsync($"STOR {destinationPath}", cancellationToken),
+            StartTransferCommandAsync($"RETR {sourcePath}", cancellationToken)));
 
         var completions = await MeasureFxpStageAsync("Data", async () => await Task.WhenAll(
-            ReadResponseAsync(cancellationToken), destination.ReadResponseAsync(cancellationToken)));
+            starts[1].Completed ? Task.FromResult(starts[1].Response) : ReadResponseAsync(cancellationToken),
+            starts[0].Completed ? Task.FromResult(starts[0].Response) : destination.ReadResponseAsync(cancellationToken)));
         EnsureSuccess(completions[0], 226, 250);
         EnsureSuccess(completions[1], 226, 250);
+    }
+
+    private async Task<TransferStart> StartTransferCommandAsync(string command, CancellationToken cancellationToken)
+    {
+        var response = await CommandAsync(command, cancellationToken);
+        // Some SSCN implementations acknowledge the selected client/server TLS
+        // role asynchronously. That acknowledgement can arrive immediately before
+        // the transfer reply even though the STOR/RETR command is already active.
+        while (response.Code == 200 && response.Message.Contains("SSCN:", StringComparison.OrdinalIgnoreCase))
+            response = await ReadResponseAsync(cancellationToken);
+
+        if (response.Code is 125 or 150) return new TransferStart(response, false);
+        // A few FTP daemons suppress the preliminary reply for FXP and answer only
+        // after the data connection closes. Treat their final reply as completion.
+        if (response.Code is 226 or 250) return new TransferStart(response, true);
+        throw new FtpCommandException(response.Code, response.Message);
     }
 
     private async Task SetClearDataProtectionAsync(CancellationToken cancellationToken)
@@ -817,19 +832,27 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     private async Task<(string Host, int Port)> OpenPassiveEndpointAsync(CancellationToken cancellationToken)
     {
+        var profile = _profile ?? throw new InvalidOperationException("The connection profile is unavailable.");
         // EPSV keeps the data connection on the same host as the control connection,
         // avoiding the unusable private addresses many FTP servers advertise in PASV.
-        var extended = await CommandAsync("EPSV", cancellationToken);
-        if (extended.Code == 229)
-            return ParseExtendedPassiveEndpoint(extended.Message, _profile!.Host, _profile.EffectiveOptions.CeprSupported);
+        // Do not probe it when FEAT did not advertise EPSV; some servers treat an
+        // unsupported probe as a fatal data-operation error instead of allowing PASV.
+        if (Capabilities.Contains("EPSV") || profile.EffectiveOptions.CeprSupported)
+        {
+            var extended = await CommandAsync("EPSV", cancellationToken);
+            if (extended.Code == 229)
+                return ParseExtendedPassiveEndpoint(extended.Message, profile.Host, profile.EffectiveOptions.CeprSupported);
+        }
 
         var passive = await CommandAsync("PASV", cancellationToken);
         EnsureSuccess(passive, 227);
         var advertised = ParsePassiveEndpoint(passive.Message);
         // When connecting through localhost, never replace it with a server-advertised LAN address.
-        var host = _profile!.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ? _profile.Host : advertised.Host;
+        var host = profile.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ? profile.Host : advertised.Host;
         return (host, advertised.Port);
     }
+
+    private sealed record TransferStart(FtpResponse Response, bool Completed);
 
     private async Task PrepareDataCommandAsync(string command, CancellationToken cancellationToken)
     {

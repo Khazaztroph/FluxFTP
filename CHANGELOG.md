@@ -2,6 +2,15 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.41 — 2026-08-06
+
+### Fixed
+
+- Passive client-relay connections now skip `EPSV` when the server does not advertise EPSV support and use `PASV` directly.
+- Direct secure FXP now drains delayed `200 SSCN:SERVER METHOD` acknowledgements before evaluating the STOR/RETR response.
+- FXP servers that omit the preliminary `125/150` reply and respond directly with `226/250` after transferring data are now recognized as successful.
+- Completed direct FXP transfers are no longer incorrectly marked failed and retried through client relay because of a delayed SSCN response.
+
 ## 1.0.40 — 2026-08-06
 
 ### Added
