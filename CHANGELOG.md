@@ -2,6 +2,20 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.40 — 2026-08-06
+
+### Added
+
+- Added `Start queue` and `Stop queue` controls for manually starting or pausing the complete transfer queue.
+- Added separate `Pause selected` and `Resume selected` controls for individual jobs.
+- Added queued Local-to-Local file and recursive folder copies with progress reporting.
+
+### Changed
+
+- `Add to queue` now collects files and complete folders without starting them; `Transfer now` continues to begin immediately.
+- Stopping the queue pauses waiting jobs and safely cancels active jobs into a resumable paused state.
+- Worker slots are warmed only when queued transfers are actually started.
+
 ## 1.0.39 — 2026-08-06
 
 ### Added

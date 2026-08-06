@@ -213,8 +213,10 @@
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="7,4">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button Content="Pause" Click="PauseTransfer_Click" Padding="9,3"/>
-                            <Button Content="Resume" Click="ResumeTransfer_Click" Padding="9,3"/>
+                            <Button Content="Start queue" Click="StartQueue_Click" Padding="9,3"/>
+                            <Button Content="Stop queue" Click="StopQueue_Click" Padding="9,3"/>
+                            <Button Content="Pause selected" Click="PauseTransfer_Click" Padding="9,3"/>
+                            <Button Content="Resume selected" Click="ResumeTransfer_Click" Padding="9,3"/>
                             <Button Content="Clear finished" Click="ClearFinished_Click" Padding="9,3"/>
                             <Button Content="Clear all" Click="ClearAll_Click" Padding="9,3"/>
                         </StackPanel>
