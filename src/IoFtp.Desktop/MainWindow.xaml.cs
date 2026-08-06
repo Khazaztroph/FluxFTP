@@ -2519,13 +2519,16 @@ public partial class MainWindow : Window
     private void MainWindow_StateChanged(object? sender, EventArgs e)
     {
         if (WindowState != WindowState.Minimized || !_settings.MinimizeToTray) return;
-        HideToTray();
+        // Run after WPF has completed the minimize transition; otherwise Windows can
+        // briefly retain an active taskbar button for the hidden window.
+        Dispatcher.BeginInvoke(HideToTray, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
     }
 
     private void HideToTray()
     {
         ShowInTaskbar = false;
         Hide();
+        _trayIcon.Visible = true;
     }
 
     private void RequestExit()
@@ -2549,6 +2552,9 @@ public partial class MainWindow : Window
         ShowInTaskbar = true;
         WindowState = WindowState.Normal;
         Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
     }
 
     private async Task RestartApiServerAsync()

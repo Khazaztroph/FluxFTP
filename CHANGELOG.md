@@ -2,6 +2,17 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.39 — 2026-08-06
+
+### Added
+
+- Added single-instance protection so starting FluxFTP again restores the existing window instead of launching another process.
+
+### Fixed
+
+- Minimizing FluxFTP to the system tray now hides the active window from the Windows taskbar after the minimize transition has completed.
+- Restoring FluxFTP from the tray now reliably brings the existing window to the foreground and gives it focus.
+
 ## 1.0.38 — 2026-08-05
 
 ### Added
