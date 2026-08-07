@@ -1,0 +1,33 @@
+# FluxFTP ioFTPD telemetry collector.
+# Add under [FTP_Custom_Commands] in system/ioFTPD.ini:
+#   fluxwho = TCL ..\scripts\FluxTelemetry.itcl
+# Restrict the command to a trusted local telemetry account under [FTP_SITE_Permissions]:
+#   fluxwho = M
+
+proc flux_clean {value} {
+    return [string map [list "|" "/" "\r" " " "\n" " "] $value]
+}
+
+proc flux_user {uid} {
+    if {[catch {set name [resolve uid $uid]}]} { return $uid }
+    return $name
+}
+
+proc fluxwho {} {
+    iputs "BEGIN:fluxwho"
+    if {[client who init "CID" "UID" "STATUS" "TRANSFERSPEED" "TRANSFERSIZE" "ACTION" "VIRTUALPATH" "VIRTUALDATAPATH" "IP" "DATAIP"] != 0} {
+        iputs -noprefix "200 ERROR: client who init failed"
+        return 1
+    }
+    while {[set row [client who fetch]] ne ""} {
+        foreach {cid uid status speed size action virtualPath dataPath ip dataIp} $row { break }
+        iputs [join [list "fluxwho" [flux_clean $cid] [flux_clean [flux_user $uid]] [flux_clean $status] \
+            [flux_clean $speed] [flux_clean $size] [flux_clean $action] [flux_clean $virtualPath] \
+            [flux_clean $dataPath] [flux_clean $status] [flux_clean $ip] [flux_clean $dataIp]] "|"]
+    }
+    catch {client who free}
+    iputs "END:fluxwho"
+    return 0
+}
+
+fluxwho

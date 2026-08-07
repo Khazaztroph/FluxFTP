@@ -2,6 +2,21 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.42 — 2026-08-07
+
+### Added
+
+- Added optional FluxTelemetry support for live ioFTPD FXP progress, speed and transferred-byte monitoring through a shared loopback JSON API.
+- Added the standalone FluxTelemetry bridge with `/info`, `/health`, `/activity`, `/metrics` and Server-Sent Events endpoints.
+- Added the lightweight ioFTPD `SITE FLUXWHO` Tcl command based directly on `client who`.
+- Added automatic migration from the legacy local ioGUI `sites.ini` when FluxTelemetry has no configured credentials, followed by Windows DPAPI password protection.
+
+### Changed
+
+- FXP monitoring now prefers FluxTelemetry without consuming one monitoring FTP slot per transfer.
+- Existing `SITE ioGuiExt who` and `SIZE` monitoring remain available automatically as fallback for ioFTPD and other FTP server configurations.
+- FluxTelemetry filters its own polling session, normalizes decimal ioFTPD speeds to bytes per second and suppresses routine HTTP request logging.
+
 ## 1.0.41 — 2026-08-06
 
 ### Fixed

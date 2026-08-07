@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
@@ -77,6 +78,12 @@ public partial class MainWindow : Window
     private readonly HashSet<(Guid Source, Guid Destination)> _reverseFxpPairs;
     private readonly ConcurrentDictionary<ConnectionProfile, ConcurrentBag<PooledWorker>> _workerPool = new();
     private static readonly TimeSpan WorkerHealthCheckInterval = TimeSpan.FromSeconds(30);
+    private static readonly HttpClient TelemetryClient = new()
+    {
+        BaseAddress = new Uri("http://127.0.0.1:55478/"),
+        Timeout = TimeSpan.FromMilliseconds(300)
+    };
+    private static readonly JsonSerializerOptions TelemetryJsonOptions = new() { PropertyNameCaseInsensitive = true };
     private bool _exitRequested;
     private bool _workerPoolShuttingDown;
     private int _legendOffset;
@@ -1883,6 +1890,24 @@ public partial class MainWindow : Window
             while (true)
             {
                 await Task.Delay(400, cancellationToken);
+                // FluxTelemetry keeps one persistent ioFTPD session and exposes the
+                // live client-who snapshot locally. Prefer it so concurrent FXP jobs
+                // do not each consume another FTP slot merely to sample progress.
+                try
+                {
+                    if (await TryReadTelemetryTransferAsync(entry, cancellationToken) is { } telemetry)
+                    {
+                        ApplyActivitySample(telemetry.Transferred, telemetry.Speed);
+                        destinationMisses = 0;
+                        continue;
+                    }
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Optional bridge unavailable or stale: retain the existing
+                    // ioGuiExt and SIZE paths for ioFTPD and all other FTP servers.
+                }
+
                 // ioFTPD commonly preallocates the complete destination file, so SIZE
                 // cannot reveal live FXP progress. ioGuiExt exposes the same transfer
                 // counter and speed that ioGUI uses; prefer it when available.
@@ -1959,6 +1984,42 @@ public partial class MainWindow : Window
         }
     }
 
+    private static async Task<(long Transferred, long Speed)?> TryReadTelemetryTransferAsync(
+        QueueEntryView entry, CancellationToken cancellationToken)
+    {
+        using var response = await TelemetryClient.GetAsync("activity", cancellationToken);
+        if (!response.IsSuccessStatusCode) return null;
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var snapshot = await JsonSerializer.DeserializeAsync<TelemetryActivitySnapshot>(stream,
+            TelemetryJsonOptions, cancellationToken);
+        if (snapshot?.Sessions is null) return null;
+
+        var source = NormalizeTelemetryPath(entry.Source);
+        var destination = NormalizeTelemetryPath(entry.Destination);
+        TelemetryActivitySession? fallback = null;
+        var candidates = 0;
+        foreach (var session in snapshot.Sessions)
+        {
+            var upload = session.Direction.Equals("upload", StringComparison.OrdinalIgnoreCase) ||
+                         session.Action.StartsWith("STOR ", StringComparison.OrdinalIgnoreCase);
+            var download = session.Direction.Equals("download", StringComparison.OrdinalIgnoreCase) ||
+                           session.Action.StartsWith("RETR ", StringComparison.OrdinalIgnoreCase);
+            if (!upload && !download) continue;
+            var identity = NormalizeTelemetryPath($"{session.Action} {session.VirtualPath} {session.DataPath}");
+            if (!identity.Contains(entry.Name, StringComparison.OrdinalIgnoreCase)) continue;
+            candidates++;
+            fallback = session;
+            var expectedPath = upload ? destination : source;
+            if (!string.IsNullOrWhiteSpace(expectedPath) && identity.Contains(expectedPath, StringComparison.OrdinalIgnoreCase))
+                return (session.TransferredBytes, session.SpeedBytesPerSecond);
+        }
+        return candidates == 1 && fallback is not null
+            ? (fallback.TransferredBytes, fallback.SpeedBytesPerSecond)
+            : null;
+    }
+
+    private static string NormalizeTelemetryPath(string value) => value.Replace('\\', '/').Trim().TrimEnd('/');
+
     private static bool TryReadIoFtpdTransfer(string response, QueueEntryView entry, bool expectUpload,
         out long transferred, out long speed)
     {
@@ -2027,6 +2088,10 @@ public partial class MainWindow : Window
         }
         catch { await session.DisposeAsync(); throw; }
     }
+
+    private sealed record TelemetryActivitySnapshot(IReadOnlyList<TelemetryActivitySession> Sessions);
+    private sealed record TelemetryActivitySession(string Direction, long SpeedBytesPerSecond, long TransferredBytes,
+        string Action, string VirtualPath, string DataPath);
 
     private async Task<FtpRemoteSession> RentWorkerAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
