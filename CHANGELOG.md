@@ -2,6 +2,13 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.43 — 2026-08-08
+
+### Fixed
+
+- Regular FTPS, FTP and SFTP transfers now report live throughput in Metrics, Transfer Jobs and the main status bar.
+- Local file copies now use the same live throughput measurement as client-mediated transfers.
+
 ## 1.0.42 — 2026-08-07
 
 ### Added

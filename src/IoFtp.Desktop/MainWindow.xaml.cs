@@ -1560,11 +1560,33 @@ public partial class MainWindow : Window
             if (apiProfile is not null) apiWorker = await RentWorkerAsync(apiProfile, cancellationToken);
             if (apiFxpSource is not null) apiFxpSourceWorker = await RentWorkerAsync(apiFxpSource, cancellationToken);
             if (apiFxpDestination is not null) apiFxpDestinationWorker = await RentWorkerAsync(apiFxpDestination, cancellationToken);
-            var progress = new Progress<long>(bytes =>
+            var speedTimer = Stopwatch.StartNew();
+            var speedSampleAt = TimeSpan.Zero;
+            long speedSampleBytes = 0;
+            var hasSpeedSample = false;
+            void ReportProgress(long bytes)
             {
                 entry.BytesTransferred = bytes;
+                var now = speedTimer.Elapsed;
+                if (!hasSpeedSample)
+                {
+                    speedSampleBytes = bytes;
+                    speedSampleAt = now;
+                    hasSpeedSample = true;
+                }
+                else if (now - speedSampleAt >= TimeSpan.FromMilliseconds(250))
+                {
+                    var elapsedSeconds = (now - speedSampleAt).TotalSeconds;
+                    entry.SpeedBytesPerSecond = Math.Max(0, (long)((bytes - speedSampleBytes) / elapsedSeconds));
+                    speedSampleBytes = bytes;
+                    speedSampleAt = now;
+                }
                 if (DateTime.UtcNow - entry.LastPersistedAt >= TimeSpan.FromSeconds(1))
                 { entry.LastPersistedAt = DateTime.UtcNow; SaveQueue(); }
+            }
+            var progress = new Progress<long>(bytes =>
+            {
+                ReportProgress(bytes);
             });
             if (entry.Direction == TransferDirection.LocalCopy)
             {
@@ -1576,7 +1598,7 @@ public partial class MainWindow : Window
                 while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
                 {
                     await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                    entry.BytesTransferred += read;
+                    ReportProgress(entry.BytesTransferred + read);
                 }
                 await output.FlushAsync(cancellationToken);
             }
