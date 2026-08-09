@@ -88,6 +88,7 @@
                     <DockPanel DockPanel.Dock="Top" Margin="7,5,7,1">
                         <Button DockPanel.Dock="Right" Content="Transfer →" Click="Upload_Click" Padding="10,4"/>
                         <Button DockPanel.Dock="Right" Content="Commands" Click="CommandsLeft_Click" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Bookmarks" Click="BookmarksLeft_Click" Padding="10,4"/>
                         <Button DockPanel.Dock="Right" Content="Disconnect" Click="DisconnectLeft_Click" Padding="10,4"/>
                         <Button DockPanel.Dock="Right" Content="Connect" Click="ConnectLeft_Click" Padding="10,4"/>
                         <ComboBox x:Name="LeftQuickSites" DockPanel.Dock="Right" Width="145" Margin="3"
@@ -148,6 +149,7 @@
                     <DockPanel DockPanel.Dock="Top" Margin="7,5,7,1">
                         <Button DockPanel.Dock="Right" Content="← Transfer" Click="Download_Click" Padding="10,4"/>
                         <Button DockPanel.Dock="Right" Content="Commands" Click="CommandsRight_Click" Padding="10,4"/>
+                        <Button DockPanel.Dock="Right" Content="Bookmarks" Click="BookmarksRight_Click" Padding="10,4"/>
                         <Button DockPanel.Dock="Right" Content="Disconnect" Click="DisconnectRight_Click" Padding="10,4"/>
                         <Button DockPanel.Dock="Right" Content="Connect" Click="ConnectRight_Click" Padding="10,4"/>
                         <ComboBox x:Name="RightQuickSites" DockPanel.Dock="Right" Width="145" Margin="3"

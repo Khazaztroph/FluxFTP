@@ -359,6 +359,20 @@ public partial class MainWindow : Window
         new CommandsWindow(_remoteSession, _rightProfile?.Name ?? "Remote", selected, selectedItem?.IsDirectory ?? false, () => NavigateRemoteAsync(_remoteDirectory), RunScriptsAsync) { Owner = this }.Show();
     }
 
+    private void BookmarksLeft_Click(object sender, RoutedEventArgs e)
+    {
+        var remote = LeftMode.SelectedIndex == 1;
+        var dialog = new BookmarksWindow(remote ? _leftProfile?.Name ?? "" : "", remote ? _leftRemoteDirectory : _localDirectory) { Owner = this };
+        if (dialog.ShowDialog() == true) { ReloadBookmarks(true); ReloadBookmarks(false); }
+    }
+
+    private void BookmarksRight_Click(object sender, RoutedEventArgs e)
+    {
+        var remote = RightMode.SelectedIndex == 1;
+        var dialog = new BookmarksWindow(remote ? _rightProfile?.Name ?? "" : "", remote ? _remoteDirectory : _rightLocalDirectory) { Owner = this };
+        if (dialog.ShowDialog() == true) { ReloadBookmarks(true); ReloadBookmarks(false); }
+    }
+
     private void LeftMode_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
@@ -1959,6 +1973,22 @@ public partial class MainWindow : Window
                     continue;
                 }
 
+                // DrFTPD exposes live FXP speed through SITE WHO. Its default
+                // theme identifies uploads/downloads and includes the active
+                // filename, which lets us match concurrent jobs safely.
+                try
+                {
+                    var who = await monitor.ExecuteCommandAsync("SITE WHO", cancellationToken);
+                    if (who.StatusCode is >= 200 and < 300 &&
+                        TryReadDrFtpdTransfer(who.Message, entry, expectUpload: true, out var speed))
+                    {
+                        ApplyActivitySample(-1, speed);
+                        destinationMisses = 0;
+                        continue;
+                    }
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
+
                 destinationMisses++;
                 if (sourceMonitor is null && destinationMisses >= 3)
                 {
@@ -1974,6 +2004,14 @@ public partial class MainWindow : Window
                             TryReadIoFtpdTransfer(sourceActivity.Message, entry, expectUpload: false, out var transferred, out var speed))
                         {
                             ApplyActivitySample(transferred, speed);
+                            continue;
+                        }
+
+                        var sourceWho = await sourceMonitor.ExecuteCommandAsync("SITE WHO", cancellationToken);
+                        if (sourceWho.StatusCode is >= 200 and < 300 &&
+                            TryReadDrFtpdTransfer(sourceWho.Message, entry, expectUpload: false, out speed))
+                        {
+                            ApplyActivitySample(-1, speed);
                             continue;
                         }
                     }
@@ -2096,6 +2134,48 @@ public partial class MainWindow : Window
             : unit.StartsWith("m") ? 1024d * 1024
             : unit.StartsWith("b") ? 1d
             : 1024d; // ioFTPD TRANSFERSPEED without a suffix is KiB/s.
+        return Math.Max(0, (long)(amount * multiplier));
+    }
+
+    private static bool TryReadDrFtpdTransfer(string response, QueueEntryView entry, bool expectUpload, out long speed)
+    {
+        speed = 0;
+        var direction = expectUpload ? "UP" : "DN";
+        (string File, long Speed)? fallback = null;
+        var candidates = 0;
+        foreach (var rawLine in response.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = Regex.Replace(rawLine, @"^\s*\d{3}[- ]\s*", "").Trim();
+            var match = Regex.Match(line,
+                $@"->\s*{direction}\s+(?<speed>[0-9]+(?:[.,][0-9]+)?\s*[KMGTPE]?i?B)/s\s+(?:to|from)\s+.+?\s+-\s+(?<file>.+)$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!match.Success) continue;
+            var parsedSpeed = ParseDrFtpdSpeed(match.Groups["speed"].Value);
+            if (parsedSpeed <= 0) continue;
+            var file = match.Groups["file"].Value.Trim();
+            if (file.Contains(entry.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                speed = parsedSpeed;
+                return true;
+            }
+            candidates++;
+            fallback = (file, parsedSpeed);
+        }
+        if (candidates != 1 || fallback is null) return false;
+        speed = fallback.Value.Speed;
+        return true;
+    }
+
+    private static long ParseDrFtpdSpeed(string value)
+    {
+        var match = Regex.Match(value.Trim().Replace(',', '.'),
+            @"^(?<amount>[0-9]+(?:\.[0-9]+)?)\s*(?<prefix>[KMGTPE]?)(?<binary>I?)B$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success || !double.TryParse(match.Groups["amount"].Value,
+                NumberStyles.Float, CultureInfo.InvariantCulture, out var amount)) return 0;
+        var exponent = "KMGTPE".IndexOf(match.Groups["prefix"].Value.ToUpperInvariant(), StringComparison.Ordinal) + 1;
+        var basis = match.Groups["binary"].Value.Length > 0 ? 1024d : 1000d;
+        var multiplier = exponent <= 0 ? 1d : Math.Pow(basis, exponent);
         return Math.Max(0, (long)(amount * multiplier));
     }
 

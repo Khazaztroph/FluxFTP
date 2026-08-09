@@ -2,6 +2,20 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.45 — 2026-08-09
+
+### Added
+
+- Added a Bookmarks window for each Local or Remote pane with site-specific filtering, editing, importing and direct navigation.
+- FTPRush imports now include bookmarks from both current JSON configurations and legacy `RushSite.xml` files using `CAPTION` and `REMOTE` attributes.
+- Added live DrFTPD FXP speed monitoring through the server's standard `SITE WHO` output.
+
+### Fixed
+
+- Standard EPSV replies now use the selected site or bouncer address instead of treating a complete multi-address field as one invalid FXP address.
+- EPSV data connections through SOCKS5 no longer mistake the proxy endpoint for the FTP server's passive-data address.
+- Secure glFTPD-to-glFTPD FXP can now complete through SSCN/EPSV when the passive reply only contains a port.
+
 ## 1.0.44 — 2026-08-09
 
 ### Added

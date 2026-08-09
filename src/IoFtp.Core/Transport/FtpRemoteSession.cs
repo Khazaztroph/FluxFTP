@@ -256,7 +256,7 @@ public sealed class FtpRemoteSession : IRemoteSession
             {
                 sourcePassive = await MeasureFxpStageAsync("EPSV", () => CommandAsync("EPSV", cancellationToken));
                 if (sourcePassive.Code == 229)
-                    sourceAdvertised = ParseExtendedPassiveEndpoint(sourcePassive.Message, _profile.Host, true);
+                    sourceAdvertised = ParseExtendedPassiveEndpoint(sourcePassive.Message, GetControlPeerHost(), true);
                 else
                 {
                     // CEPR may be enabled for a bouncer while the currently selected
@@ -285,7 +285,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         {
             passive = await MeasureFxpStageAsync("EPSV", () => destination.CommandAsync("EPSV", cancellationToken));
             if (passive.Code == 229)
-                advertised = ParseExtendedPassiveEndpoint(passive.Message, destination._profile.Host, true);
+                advertised = ParseExtendedPassiveEndpoint(passive.Message, destination.GetControlPeerHost(), true);
             else
             {
                 // A CEPR-configured endpoint may reject EPSV even though the
@@ -412,8 +412,12 @@ public sealed class FtpRemoteSession : IRemoteSession
     private static async Task ConfigureActiveFxpEndpointAsync(FtpRemoteSession activeSession,
         (string Host, int Port) advertised, CancellationToken cancellationToken)
     {
-        if (!IPAddress.TryParse(advertised.Host, out var address))
-            throw new IOException("The passive FXP server returned an invalid address.");
+        IPAddress address;
+        try { address = await ResolveIpv4Async(advertised.Host, cancellationToken); }
+        catch (Exception exception) when (exception is SocketException or NotSupportedException or ArgumentException)
+        {
+            throw new IOException($"The passive FXP server returned an invalid address ({advertised.Host}).", exception);
+        }
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
         {
             if (!activeSession.Capabilities.Contains("EPRT"))
@@ -893,7 +897,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         {
             var extended = await CommandAsync("EPSV", cancellationToken);
             if (extended.Code == 229)
-                return ParseExtendedPassiveEndpoint(extended.Message, profile.Host, profile.EffectiveOptions.CeprSupported);
+                return ParseExtendedPassiveEndpoint(extended.Message, GetControlPeerHost(), profile.EffectiveOptions.CeprSupported);
         }
 
         var passive = await CommandAsync("PASV", cancellationToken);
@@ -971,6 +975,17 @@ public sealed class FtpRemoteSession : IRemoteSession
         }, cancellationToken);
         LogTlsDetails(ssl, "control");
         _controlStream = ssl;
+    }
+
+    private string GetControlPeerHost()
+    {
+        // ConnectedHost is the selected site/bouncer address. When the control
+        // connection uses SOCKS, RemoteEndPoint is the proxy itself and must not
+        // be reused as the EPSV data target.
+        if (!string.IsNullOrWhiteSpace(ConnectedHost)) return ConnectedHost;
+        if (_controlClient?.Client.RemoteEndPoint is IPEndPoint peer)
+            return peer.Address.IsIPv4MappedToIPv6 ? peer.Address.MapToIPv4().ToString() : peer.Address.ToString();
+        return _profile?.Host ?? throw new InvalidOperationException("The control connection address is unavailable.");
     }
 
     private bool ValidateCertificate(object sender, X509Certificate? certificate,

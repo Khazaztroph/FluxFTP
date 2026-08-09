@@ -17,7 +17,7 @@ internal static class FtpRushSiteImporter
     public static FtpRushImportPackage ImportPackage(string path)
     {
         if (Path.GetExtension(path).Equals(".xml", StringComparison.OrdinalIgnoreCase))
-            return new(ImportLegacyXml(path), []);
+            return ImportLegacyXml(path);
         using var document = JsonDocument.Parse(File.ReadAllText(path));
         if (!document.RootElement.TryGetProperty("RootItem", out var root))
             throw new InvalidDataException("The file is not a supported FTPRush site.json file.");
@@ -28,22 +28,25 @@ internal static class FtpRushSiteImporter
         if (File.Exists(settingsPath))
         {
             using var settings = JsonDocument.Parse(File.ReadAllText(settingsPath));
-            ReadBookmarks(settings.RootElement, "", bookmarks);
+            ReadBookmarksRecursive(settings.RootElement, "", bookmarks);
         }
         return new(result, bookmarks.DistinctBy(item => $"{item.SiteName}\0{item.Name}\0{item.Path}",
             StringComparer.OrdinalIgnoreCase).ToList());
     }
 
-    private static IReadOnlyList<FtpRushImportedSite> ImportLegacyXml(string path)
+    private static FtpRushImportPackage ImportLegacyXml(string path)
     {
         var document = XDocument.Load(path, LoadOptions.None);
         var result = new List<FtpRushImportedSite>();
+        var bookmarks = new List<SiteBookmark>();
         if (document.Root is null) throw new InvalidDataException("The FTPRush XML file has no root element.");
-        WalkLegacy(document.Root, "", result);
-        return result;
+        WalkLegacy(document.Root, "", result, bookmarks);
+        return new(result, bookmarks.DistinctBy(item => $"{item.SiteName}\0{item.Name}\0{item.Path}",
+            StringComparer.OrdinalIgnoreCase).ToList());
     }
 
-    private static void WalkLegacy(XElement node, string parentPath, List<FtpRushImportedSite> result)
+    private static void WalkLegacy(XElement node, string parentPath, List<FtpRushImportedSite> result,
+        List<SiteBookmark> bookmarks)
     {
         var name = node.Attribute("NAME")?.Value?.Trim();
         var host = LegacyValue(node, "HOST");
@@ -59,12 +62,30 @@ internal static class FtpRushSiteImporter
                 LegacyValue(node, "USERNAME", "USER"), protocol, "", false, DirectoryListingMode.StatThenList,
                 new SiteOptions(BasePath: remotePath));
             result.Add(new(profile, parentPath));
+            ReadLegacyBookmarks(node, profile.Name, bookmarks);
         }
         var nextPath = !isSite && !string.IsNullOrWhiteSpace(name)
             ? string.IsNullOrWhiteSpace(parentPath) ? name : $"{parentPath} / {name}"
             : parentPath;
         foreach (var child in node.Elements().Where(child => !IsLegacyValueElement(child.Name.LocalName)))
-            WalkLegacy(child, nextPath, result);
+            WalkLegacy(child, nextPath, result, bookmarks);
+    }
+
+    private static void ReadLegacyBookmarks(XElement site, string siteName, List<SiteBookmark> result)
+    {
+        foreach (var element in site.Descendants())
+        {
+            var inBookmarkTree = element.AncestorsAndSelf().Any(item =>
+                item.Name.LocalName.Contains("BOOKMARK", StringComparison.OrdinalIgnoreCase));
+            if (!inBookmarkTree) continue;
+            var path = LegacyValue(element, "REMOTE", "REMOTEPATH", "REMOTE_PATH", "PATH", "DIRECTORY", "DIR")
+                .Trim().Replace('\\', '/');
+            if (path.Length == 0) continue;
+            if (!path.StartsWith('/')) path = "/" + path;
+            var name = LegacyValue(element, "CAPTION", "NAME", "TITLE", "LABEL").Trim();
+            if (name.Length == 0) name = path.TrimEnd('/').Split('/').LastOrDefault() ?? path;
+            result.Add(new(name, path, siteName));
+        }
     }
 
     private static string LegacyValue(XElement node, params string[] names)
@@ -127,17 +148,45 @@ internal static class FtpRushSiteImporter
 
     private static void ReadBookmarks(JsonElement element, string siteName, List<SiteBookmark> result)
     {
-        if (!element.TryGetProperty("BookMarks", out var bookmarks) || bookmarks.ValueKind != JsonValueKind.Array) return;
+        if (!TryGetProperty(element, "BookMarks", out var bookmarks) || bookmarks.ValueKind != JsonValueKind.Array) return;
         foreach (var bookmark in bookmarks.EnumerateArray())
         {
             var name = Text(bookmark, "Name").Trim();
-            var path = Text(bookmark, "Path").Trim().Replace('\\', '/');
+            var path = FirstText(bookmark, "Path", "RemotePath", "DefaultRemotePath").Trim().Replace('\\', '/');
             if (name.Length > 0 && path.Length > 0) result.Add(new(name, path, siteName));
         }
     }
 
-    private static string Text(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+    private static void ReadBookmarksRecursive(JsonElement element, string siteName, List<SiteBookmark> result)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            ReadBookmarks(element, siteName, result);
+            foreach (var property in element.EnumerateObject()) ReadBookmarksRecursive(property.Value, siteName, result);
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+            foreach (var item in element.EnumerateArray()) ReadBookmarksRecursive(item, siteName, result);
+    }
+
+    private static string FirstText(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+            if (TryGetProperty(element, name, out var value) && value.ValueKind == JsonValueKind.String)
+                return value.GetString() ?? "";
+        return "";
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+            foreach (var property in element.EnumerateObject())
+                if (property.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                { value = property.Value; return true; }
+        value = default;
+        return false;
+    }
+
+    private static string Text(JsonElement element, string name) => FirstText(element, name);
 
     private static int Number(JsonElement element, string name, int fallback) =>
         element.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) ? number : fallback;
