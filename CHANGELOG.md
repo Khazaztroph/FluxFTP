@@ -2,6 +2,12 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.46 — 2026-08-09
+
+### Removed
+
+- Removed the legacy cbftp UDP command listener. Automation now uses the authenticated HTTPS/JSON API exclusively.
+
 ## 1.0.45 — 2026-08-09
 
 ### Added

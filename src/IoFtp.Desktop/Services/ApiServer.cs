@@ -21,7 +21,6 @@ namespace IoFtp.Desktop.Services;
 internal sealed class ApiServer : IAsyncDisposable
 {
     private WebApplication? _app;
-    private CbftpUdpServer? _udpServer;
     private readonly Dictionary<string, SpreadJobState> _spreadJobs = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _spreadJobsLock = new();
     private int _nextSpreadJobId;
@@ -62,7 +61,7 @@ internal sealed class ApiServer : IAsyncDisposable
             }
         });
 
-        _app.MapGet("/info", () => Results.Json(new { name = "FluxFTP", version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0", api = "cbftp-compatible", tls = true, udp = true }));
+        _app.MapGet("/info", () => Results.Json(new { name = "FluxFTP", version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0", api = "cbftp-compatible", tls = true, udp = false }));
         // Stock cbftp returns name arrays from the collection endpoints.  RaceTrade
         // subsequently requests the detail endpoint for every selected name.
         _app.MapGet("/sites", () => Results.Json(new ProfileStore().Load().Select(site => site.Name)));
@@ -278,14 +277,10 @@ internal sealed class ApiServer : IAsyncDisposable
         _app.MapPost("/transferjobs/{id:guid}/reset", (Guid id) => { resetJob(id); return Results.Ok(new { reset = id }); });
 
         await _app.StartAsync();
-        _udpServer = new CbftpUdpServer(settings.ApiLocalhostOnly ? IPAddress.Loopback : IPAddress.Any, settings.HttpsApiPort,
-            settings.ApiPassword, ExecuteRawAsync, startTransfer, startDownload);
-        await _udpServer.StartAsync();
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_udpServer is not null) { await _udpServer.DisposeAsync(); _udpServer = null; }
         if (_app is null) return;
         await _app.StopAsync(); await _app.DisposeAsync(); _app = null;
     }

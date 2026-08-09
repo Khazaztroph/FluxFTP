@@ -2810,7 +2810,7 @@ public partial class MainWindow : Window
                     LogText.AppendText($"{Environment.NewLine}{message}");
                     LogText.ScrollToEnd();
                 }));
-            LogText.AppendText($"{Environment.NewLine}HTTPS/JSON API and cbftp UDP listening on {(_settings.ApiLocalhostOnly ? "localhost" : "0.0.0.0")}:{_settings.HttpsApiPort}");
+            LogText.AppendText($"{Environment.NewLine}HTTPS/JSON API listening on {(_settings.ApiLocalhostOnly ? "localhost" : "0.0.0.0")}:{_settings.HttpsApiPort}");
         }
         catch (Exception exception)
         {
