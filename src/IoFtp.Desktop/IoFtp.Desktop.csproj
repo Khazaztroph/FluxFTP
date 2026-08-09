@@ -8,9 +8,9 @@
     <AssemblyName>FluxFTP</AssemblyName>
     <Product>FluxFTP</Product>
     <Title>FluxFTP</Title>
-    <Version>1.0.43</Version>
-    <AssemblyVersion>1.0.43.0</AssemblyVersion>
-    <FileVersion>1.0.43.0</FileVersion>
+    <Version>1.0.44</Version>
+    <AssemblyVersion>1.0.44.0</AssemblyVersion>
+    <FileVersion>1.0.44.0</FileVersion>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <RootNamespace>IoFtp.Desktop</RootNamespace>
     <ApplicationIcon>Assets\fluxftp-server.ico</ApplicationIcon>
@@ -20,5 +20,8 @@
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
     <ProjectReference Include="..\IoFtp.Core\IoFtp.Core.csproj" />
     <ProjectReference Include="..\IoFtp.Engine\IoFtp.Engine.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\CHANGELOG.md" Link="CHANGELOG.md" />
   </ItemGroup>
 </Project>

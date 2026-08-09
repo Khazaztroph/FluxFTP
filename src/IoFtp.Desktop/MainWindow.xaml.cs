@@ -2639,6 +2639,7 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() == true && dialog.Settings is not null)
         {
             _settings = dialog.Settings; _settingsStore.Save(_settings);
+            ThemeManager.Apply(_settings.Theme);
             ConfigureTrayIcon();
             UpdateLegendBar();
             _engine.ConfigureLocalSlots(_settings.MaxLocalDownloadSlots, _settings.MaxLocalUploadSlots);

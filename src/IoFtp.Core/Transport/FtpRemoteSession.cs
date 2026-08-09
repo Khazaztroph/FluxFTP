@@ -24,6 +24,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     private SslPolicyErrors _lastTlsPolicyErrors;
     private int _loggedDataTlsDetails;
     private bool _tls12Only;
+    private bool _useOpenSslFallback;
     private SftpRemoteSession? _sftpSession;
 
     /// <summary>Raw FTP control-channel traffic. PASS arguments are always masked.</summary>
@@ -41,19 +42,36 @@ public sealed class FtpRemoteSession : IRemoteSession
     public async Task ConnectAsync(ConnectionProfile profile, CancellationToken cancellationToken)
     {
         _tls12Only = false;
+        _useOpenSslFallback = profile.EffectiveOptions.UseOpenSslTls;
+        if (_useOpenSslFallback)
+        {
+            ProtocolMessage?.Invoke("< Site option enabled: using OpenSSL TLS directly.");
+            await ConnectCoreAsync(profile, cancellationToken);
+            return;
+        }
         try
         {
             await ConnectCoreAsync(profile, cancellationToken);
         }
         catch (Exception exception) when (
             profile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit &&
-            IsMalformedTlsFrame(exception) && !cancellationToken.IsCancellationRequested)
+            IsTlsHandshakeFailure(exception) && !cancellationToken.IsCancellationRequested)
         {
-            ProtocolMessage?.Invoke("< TLS negotiation returned an invalid frame; reconnecting with TLS 1.2 only...");
+            ProtocolMessage?.Invoke(
+                $"< TLS negotiation failed ({TlsFailureSummary(exception)}); reconnecting with TLS 1.2 only...");
             using (var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
                 await DisconnectAsync(cleanupTimeout.Token);
             _tls12Only = true;
-            await ConnectCoreAsync(profile, cancellationToken);
+            try { await ConnectCoreAsync(profile, cancellationToken); }
+            catch (Exception retryException) when (IsTlsHandshakeFailure(retryException) && !cancellationToken.IsCancellationRequested)
+            {
+                ProtocolMessage?.Invoke(
+                    $"< TLS 1.2 Schannel negotiation failed ({TlsFailureSummary(retryException)}); reconnecting with OpenSSL compatibility fallback...");
+                using (var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+                    await DisconnectAsync(cleanupTimeout.Token);
+                _useOpenSslFallback = true;
+                await ConnectCoreAsync(profile, cancellationToken);
+            }
         }
     }
 
@@ -101,14 +119,15 @@ public sealed class FtpRemoteSession : IRemoteSession
                 authResponse = await CommandAsync("AUTH SSL", cancellationToken);
             }
             EnsureSuccess(authResponse, 234, 334);
+            // AUTH TLS has switched the control socket to TLS. The plaintext
+            // reader/writer must not be reused (or send QUIT) if the following
+            // handshake or certificate validation fails.
+            _writer?.Dispose();
+            _reader?.Dispose();
+            _writer = null;
+            _reader = null;
             await EnableTlsAsync(cancellationToken);
             CreateTextStreams();
-        }
-
-        if (profile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit)
-        {
-            EnsureSuccess(await CommandAsync("PBSZ 0", cancellationToken), 200);
-            EnsureSuccess(await CommandAsync("PROT P", cancellationToken), 200);
         }
 
         var username = string.IsNullOrWhiteSpace(profile.Username) ? "anonymous" : profile.Username;
@@ -118,6 +137,26 @@ public sealed class FtpRemoteSession : IRemoteSession
             EnsureSuccess(await CommandAsync($"PASS {password}", cancellationToken), 230);
         else
             EnsureSuccess(userResponse, 230);
+
+        // DrFTPD requires an authenticated user before accepting PBSZ/PROT,
+        // while glFTPD and ioFTPD accept this standards-compatible ordering too.
+        if (profile.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit)
+        {
+            EnsureSuccess(await CommandAsync("PBSZ 0", cancellationToken), 200);
+            var privateProtection = await CommandAsync("PROT P", cancellationToken);
+            if (privateProtection.Code is >= 200 and < 300)
+            {
+                _protectData = true;
+            }
+            else
+            {
+                ProtocolMessage?.Invoke(
+                    $"< Server rejected protected data channels with PROT P ({privateProtection.Code}); " +
+                    "continuing with encrypted control and clear data (PROT C).");
+                EnsureSuccess(await CommandAsync("PROT C", cancellationToken), 200);
+                _protectData = false;
+            }
+        }
 
         if (profile.EffectiveOptions.ForceBinaryMode)
             EnsureSuccess(await CommandAsync("TYPE I", cancellationToken), 200);
@@ -412,8 +451,12 @@ public sealed class FtpRemoteSession : IRemoteSession
         {
             if (clearListing)
             {
-                _protectData = true;
-                try { EnsureSuccess(await CommandAsync("PROT P", CancellationToken.None), 200); } catch { }
+                try
+                {
+                    var privateProtection = await CommandAsync("PROT P", CancellationToken.None);
+                    _protectData = privateProtection.Code is >= 200 and < 300;
+                }
+                catch { _protectData = false; }
             }
             _operationGate.Release();
         }
@@ -496,7 +539,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         // FTPS servers begin the data-channel TLS handshake only after accepting
         // the transfer command. Starting TLS before LIST deadlocks with ioFTPD.
         Stream dataStream;
-        try { dataStream = await ProtectDataStreamAsync(dataClient.GetStream(), cancellationToken); }
+        try { dataStream = await ProtectDataStreamAsync(dataClient.GetStream(), dataClient.Client, cancellationToken); }
         catch (Exception exception) when (_protectData &&
             _profile!.Protocol is TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit &&
             exception is IOException or AuthenticationException)
@@ -635,7 +678,7 @@ public sealed class FtpRemoteSession : IRemoteSession
             EnsureSuccess(await CommandAsync(command, cancellationToken), 125, 150);
             try
             {
-                await using var stream = await ProtectDataStreamAsync(dataClient.GetStream(), cancellationToken);
+                await using var stream = await ProtectDataStreamAsync(dataClient.GetStream(), dataClient.Client, cancellationToken);
                 await transfer(stream);
             }
             catch (IOException exception) { dataError = exception; }
@@ -680,7 +723,7 @@ public sealed class FtpRemoteSession : IRemoteSession
             if (offset > 0) EnsureSuccess(await CommandAsync($"REST {offset}", cancellationToken), 350);
             EnsureSuccess(await CommandAsync(command, cancellationToken), 125, 150);
             using var client = await listener.AcceptTcpClientAsync(cancellationToken);
-            await using var stream = await ProtectDataStreamAsync(client.GetStream(), cancellationToken);
+            await using var stream = await ProtectDataStreamAsync(client.GetStream(), client.Client, cancellationToken);
             await transfer(stream);
             EnsureSuccess(await ReadResponseAsync(cancellationToken), 226, 250);
         }
@@ -706,7 +749,7 @@ public sealed class FtpRemoteSession : IRemoteSession
             EnsureSuccess(listResponse, 125, 150);
 
             using var dataClient = await listener.AcceptTcpClientAsync(cancellationToken);
-            var dataStream = await ProtectDataStreamAsync(dataClient.GetStream(), cancellationToken);
+            var dataStream = await ProtectDataStreamAsync(dataClient.GetStream(), dataClient.Client, cancellationToken);
             string listing;
             try { listing = await ReadListingDataAsync(dataStream, cancellationToken); }
             finally { await DisposeDataStreamSafelyAsync(dataStream); }
@@ -717,9 +760,18 @@ public sealed class FtpRemoteSession : IRemoteSession
         finally { listener.Stop(); }
     }
 
-    private async Task<Stream> ProtectDataStreamAsync(Stream stream, CancellationToken cancellationToken)
+    private async Task<Stream> ProtectDataStreamAsync(Stream stream, Socket socket, CancellationToken cancellationToken)
     {
         if (!_protectData || _profile!.Protocol is not (TransferProtocol.FtpsExplicit or TransferProtocol.FtpsImplicit)) return stream;
+        if (_useOpenSslFallback)
+        {
+            var targetHost = string.IsNullOrWhiteSpace(ConnectedHost) ? _profile.Host : ConnectedHost;
+            var openSsl = await OpenSslTlsStream.AuthenticateAsync(socket, stream, targetHost,
+                _profile.AllowInvalidCertificate, cancellationToken);
+            if (Interlocked.Exchange(ref _loggedDataTlsDetails, 1) == 0)
+                LogOpenSslDetails(openSsl, "data");
+            return openSsl;
+        }
         var ssl = new SslStream(stream, false, ValidateCertificate);
         await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
         {
@@ -899,10 +951,22 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     private async Task EnableTlsAsync(CancellationToken cancellationToken)
     {
+        var targetHost = string.IsNullOrWhiteSpace(ConnectedHost) ? _profile!.Host : ConnectedHost;
+        if (_useOpenSslFallback)
+        {
+            ProtocolMessage?.Invoke($"< TLS control handshake: OpenSSL compatibility fallback; protocols TLS 1.2 + TLS 1.3; SNI {targetHost}");
+            var openSsl = await OpenSslTlsStream.AuthenticateAsync(_controlClient!.Client, _controlStream!, targetHost,
+                _profile!.AllowInvalidCertificate, cancellationToken);
+            LogOpenSslDetails(openSsl, "control");
+            _controlStream = openSsl;
+            return;
+        }
         var ssl = new SslStream(_controlStream!, false, ValidateCertificate);
+        ProtocolMessage?.Invoke(
+            $"< TLS control handshake: Windows Schannel; protocols {(_tls12Only ? "TLS 1.2 only" : "TLS 1.2 + TLS 1.3")}; SNI {targetHost}");
         await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
         {
-            TargetHost = string.IsNullOrWhiteSpace(ConnectedHost) ? _profile!.Host : ConnectedHost,
+            TargetHost = targetHost,
             EnabledSslProtocols = EnabledTlsProtocols
         }, cancellationToken);
         LogTlsDetails(ssl, "control");
@@ -944,20 +1008,59 @@ public sealed class FtpRemoteSession : IRemoteSession
             $"valid {certificate.NotBefore:yyyy-MM-dd HH:mm:ss} to {certificate.NotAfter:yyyy-MM-dd HH:mm:ss}; validation {validation}");
     }
 
+    private void LogOpenSslDetails(OpenSslTlsStream ssl, string channel)
+    {
+        ProtocolMessage?.Invoke(
+            $"< TLS {channel}: backend OpenSSL; {ssl.Protocol}; cipher {ssl.Cipher}; strength {ssl.CipherBits} bits");
+        if (ssl.RemoteCertificate is null)
+        {
+            ProtocolMessage?.Invoke("< TLS certificate: unavailable");
+            return;
+        }
+        var validation = _profile?.AllowInvalidCertificate == true ? "accepted by site setting" : "valid";
+        ProtocolMessage?.Invoke(
+            $"< TLS certificate: Subject={SingleLine(ssl.RemoteCertificate.Subject)}; " +
+            $"Issuer={SingleLine(ssl.RemoteCertificate.Issuer)}; valid {ssl.RemoteCertificate.NotBefore:yyyy-MM-dd HH:mm:ss} " +
+            $"to {ssl.RemoteCertificate.NotAfter:yyyy-MM-dd HH:mm:ss}; validation {validation}");
+    }
+
     private static string SingleLine(string value) => value.Replace('\r', ' ').Replace('\n', ' ');
 
     private SslProtocols EnabledTlsProtocols =>
         _tls12Only ? SslProtocols.Tls12 : SslProtocols.Tls12 | SslProtocols.Tls13;
 
-    private static bool IsMalformedTlsFrame(Exception exception)
+    private static bool IsTlsCompatibilityFailure(Exception exception)
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
             if (current.Message.Contains("Cannot determine the frame size", StringComparison.OrdinalIgnoreCase) ||
-                current.Message.Contains("corrupted frame", StringComparison.OrdinalIgnoreCase))
+                current.Message.Contains("corrupted frame", StringComparison.OrdinalIgnoreCase) ||
+                current.Message.Contains("HandshakeFailure", StringComparison.OrdinalIgnoreCase) ||
+                current.Message.Contains("handshake failure", StringComparison.OrdinalIgnoreCase) ||
+                current.Message.Contains("no shared cipher", StringComparison.OrdinalIgnoreCase))
                 return true;
         }
         return false;
+    }
+
+    private static bool IsTlsHandshakeFailure(Exception exception)
+    {
+        if (IsTlsCompatibilityFailure(exception)) return true;
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+            if (current is AuthenticationException) return true;
+        return false;
+    }
+
+    private static string TlsFailureSummary(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("HandshakeFailure", StringComparison.OrdinalIgnoreCase) ||
+                current.Message.Contains("handshake failure", StringComparison.OrdinalIgnoreCase)) return "server alert HandshakeFailure";
+            if (current.Message.Contains("no shared cipher", StringComparison.OrdinalIgnoreCase)) return "no shared cipher";
+            if (current.Message.Contains("frame", StringComparison.OrdinalIgnoreCase)) return "invalid TLS frame";
+        }
+        return exception.GetType().Name;
     }
 
     private void CreateTextStreams()

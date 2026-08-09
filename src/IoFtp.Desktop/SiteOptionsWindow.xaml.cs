@@ -21,6 +21,7 @@ public partial class SiteOptionsWindow : Window
         NeedsPretBox.IsChecked = options.NeedsPret;
         CeprBox.IsChecked = options.CeprSupported;
         XdupeBox.IsChecked = options.UseXdupe;
+        OpenSslTlsBox.IsChecked = options.UseOpenSslTls;
         FxpProtectionBox.ItemsSource = new[]
         {
             new FxpProtectionChoice(FxpProtectionMode.AutoSecure, "Auto — secure FXP (TLS)"),
@@ -86,7 +87,8 @@ public partial class SiteOptionsWindow : Window
             (FxpProtectionBox.SelectedItem as FxpProtectionChoice)?.Mode ?? FxpProtectionMode.AutoSecure,
             BrokenPasvBox.IsChecked == true
                 ? FxpDataRole.Active
-                : (FxpDataRoleBox.SelectedItem as FxpDataRoleChoice)?.Role ?? FxpDataRole.Auto);
+                : (FxpDataRoleBox.SelectedItem as FxpDataRoleChoice)?.Role ?? FxpDataRole.Auto,
+            OpenSslTlsBox.IsChecked == true);
         SiteProxy = proxyType switch
         {
             null => null,

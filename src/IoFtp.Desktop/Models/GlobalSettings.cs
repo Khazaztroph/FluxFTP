@@ -37,4 +37,5 @@ public sealed record GlobalSettings(
     bool ProxyDns = true,
     bool ProxyDataConnections = true,
     bool CheckForUpdatesAtStartup = true,
-    AdvancedSkipRule[]? AdvancedSkipRules = null);
+    AdvancedSkipRule[]? AdvancedSkipRules = null,
+    ThemeSettings? Theme = null);

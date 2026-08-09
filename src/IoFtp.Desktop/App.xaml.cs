@@ -20,6 +20,7 @@ public partial class App : System.Windows.Application
             return;
         }
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent, new RoutedEventHandler(ApplyDarkChrome));
+        Services.ThemeManager.Apply(new Services.GlobalSettingsStore().Load().Theme);
         base.OnStartup(e);
     }
 

@@ -57,7 +57,8 @@ public sealed record SiteOptions(
     bool UseXdupe = false,
     string Affils = "",
     FxpProtectionMode FxpProtection = FxpProtectionMode.AutoSecure,
-    FxpDataRole FxpDataRole = FxpDataRole.Auto);
+    FxpDataRole FxpDataRole = FxpDataRole.Auto,
+    bool UseOpenSslTls = false);
 
 public sealed record ConnectionProfile(
     Guid Id,

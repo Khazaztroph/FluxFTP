@@ -4,9 +4,9 @@
         xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework"
         Title="FluxFTP" Width="1165" Height="750" MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen">
-    <DockPanel Background="{StaticResource WindowBrush}">
-        <Border DockPanel.Dock="Top" Background="{StaticResource SurfaceRaisedBrush}"
-                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8">
+    <DockPanel Background="{DynamicResource WindowBrush}">
+        <Border DockPanel.Dock="Top" Background="{DynamicResource SurfaceRaisedBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="8">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -14,12 +14,12 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Flux" Foreground="{StaticResource AccentBrush}" FontSize="22" FontWeight="Bold" />
+                    <TextBlock Text="Flux" Foreground="{DynamicResource AccentBrush}" FontSize="22" FontWeight="Bold" />
                     <TextBlock Text="FTP" FontSize="22" FontWeight="SemiBold" Margin="0,0,16,0" />
                     <Button Content="Site Manager" Click="SiteManager_Click" />
                     <Button Content="Quick Connect" Click="QuickConnect_Click" />
                 </StackPanel>
-                <TextBlock x:Name="ConnectionStatus" Grid.Column="1" Text="Offline workspace" Foreground="{StaticResource MutedTextBrush}"
+                <TextBlock x:Name="ConnectionStatus" Grid.Column="1" Text="Offline workspace" Foreground="{DynamicResource MutedTextBrush}"
                            VerticalAlignment="Center" HorizontalAlignment="Center" />
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Content="Transfer Jobs" Click="TransferJobs_Click" />
@@ -36,8 +36,8 @@
         </Border>
 
         <Border x:Name="LegendBar" DockPanel.Dock="Bottom" Height="34" Padding="4,2"
-                Background="{StaticResource SurfaceRaisedBrush}"
-                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
+                Background="{DynamicResource SurfaceRaisedBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
                 SizeChanged="LegendBar_SizeChanged">
             <Grid HorizontalAlignment="Stretch">
                 <Grid.ColumnDefinitions>
@@ -50,25 +50,25 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="LegendText" Text="FluxFTP ready" VerticalAlignment="Center" Margin="6,0"
                            TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                <Border x:Name="TransferBytesSeparator" Grid.Column="1" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <Border x:Name="TransferBytesSeparator" Grid.Column="1" Background="{DynamicResource BorderBrush}" Margin="0,3"/>
                 <TextBlock x:Name="TransferBytesText" Grid.Column="2" Text="—" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                <Border x:Name="ProgressSeparator" Grid.Column="3" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <Border x:Name="ProgressSeparator" Grid.Column="3" Background="{DynamicResource BorderBrush}" Margin="0,3"/>
                 <Grid x:Name="StatusProgressPanel" Grid.Column="4" Margin="7,4">
                     <ProgressBar x:Name="StatusProgressBar" Style="{StaticResource FilledProgressBar}" Height="18" Minimum="0" Maximum="100"/>
                     <TextBlock x:Name="StatusProgressText" Text="Idle" HorizontalAlignment="Center" VerticalAlignment="Center"
-                               FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+                               FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
                 </Grid>
-                <Border x:Name="ElapsedSeparator" Grid.Column="5" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <Border x:Name="ElapsedSeparator" Grid.Column="5" Background="{DynamicResource BorderBrush}" Margin="0,3"/>
                 <TextBlock x:Name="ElapsedText" Grid.Column="6" Text="Elapsed: —" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                <Border x:Name="RemainingSeparator" Grid.Column="7" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <Border x:Name="RemainingSeparator" Grid.Column="7" Background="{DynamicResource BorderBrush}" Margin="0,3"/>
                 <TextBlock x:Name="RemainingText" Grid.Column="8" Text="Remaining: —" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                <Border x:Name="QueueTimeSeparator" Grid.Column="9" Background="{StaticResource BorderBrush}" Margin="0,3"/>
+                <Border x:Name="QueueTimeSeparator" Grid.Column="9" Background="{DynamicResource BorderBrush}" Margin="0,3"/>
                 <TextBlock x:Name="QueueTimeText" Grid.Column="10" Text="Queue: 00:00" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 <TextBlock x:Name="QueueStatus" Text="0 queued" Visibility="Collapsed"/>
             </Grid>
         </Border>
 
-        <Grid Background="{StaticResource WindowBrush}">
+        <Grid Background="{DynamicResource WindowBrush}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
                 <RowDefinition Height="0" x:Name="QueueSplitterRow" />
@@ -82,8 +82,8 @@
                 <ColumnDefinition x:Name="RightPaneColumn" Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Row="0" Grid.Column="0" Background="{StaticResource SurfaceBrush}" Margin="8,8,3,3"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+            <Border Grid.Row="0" Grid.Column="0" Background="{DynamicResource SurfaceBrush}" Margin="8,8,3,3"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="7,5,7,1">
                         <Button DockPanel.Dock="Right" Content="Transfer →" Click="Upload_Click" Padding="10,4"/>
@@ -94,7 +94,7 @@
                                   DisplayMemberPath="Label" SelectionChanged="LeftQuickSites_SelectionChanged"
                                   DropDownOpened="QuickSites_DropDownOpened" ToolTip="Quick Connect from saved sites"/>
                         <ComboBox x:Name="LeftMode" SelectionChanged="LeftMode_Changed" Width="105" Margin="3"><ComboBoxItem Content="Local"/><ComboBoxItem Content="Remote" IsSelected="True"/></ComboBox>
-                        <TextBlock x:Name="LeftSiteTitle" Text="REMOTE SITE" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="6,3" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="LeftSiteTitle" Text="REMOTE SITE" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="6,3" VerticalAlignment="Center"/>
                     </DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="8,2,8,8">
                         <Button DockPanel.Dock="Right" Content="Up" Click="LocalUp_Click" Margin="5,0,0,0" Padding="10,4"/>
@@ -140,10 +140,10 @@
                 </DockPanel>
             </Border>
 
-            <GridSplitter Grid.Row="0" Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="{StaticResource BorderBrush}" />
+            <GridSplitter Grid.Row="0" Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="{DynamicResource BorderBrush}" />
 
-            <Border Grid.Row="0" Grid.Column="2" Background="{StaticResource SurfaceBrush}" Margin="3,8,8,3"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+            <Border Grid.Row="0" Grid.Column="2" Background="{DynamicResource SurfaceBrush}" Margin="3,8,8,3"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="7,5,7,1">
                         <Button DockPanel.Dock="Right" Content="← Transfer" Click="Download_Click" Padding="10,4"/>
@@ -154,7 +154,7 @@
                                   DisplayMemberPath="Label" SelectionChanged="RightQuickSites_SelectionChanged"
                                   DropDownOpened="QuickSites_DropDownOpened" ToolTip="Quick Connect from saved sites"/>
                         <ComboBox x:Name="RightMode" SelectionChanged="RightMode_Changed" Width="105" Margin="3"><ComboBoxItem Content="Local"/><ComboBoxItem Content="Remote" IsSelected="True"/></ComboBox>
-                        <TextBlock x:Name="RemoteSiteTitle" Text="REMOTE SITE" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="3" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="RemoteSiteTitle" Text="REMOTE SITE" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="3" VerticalAlignment="Center"/>
                     </DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="8,2,8,8">
                         <Button DockPanel.Dock="Right" Content="Up" Click="RemoteUp_Click" Margin="5,0,0,0" Padding="10,4"/>
@@ -203,13 +203,13 @@
                               ToolTip="Drag to resize the transfer queue" Visibility="Collapsed">
                 <primitives:Thumb.Template><ControlTemplate TargetType="{x:Type primitives:Thumb}">
                     <Grid Background="Transparent"><Border Height="2" Margin="80,0" VerticalAlignment="Center"
-                                                          Background="{StaticResource BorderBrush}" CornerRadius="1"/></Grid>
+                                                          Background="{DynamicResource BorderBrush}" CornerRadius="1"/></Grid>
                 </ControlTemplate></primitives:Thumb.Template>
             </primitives:Thumb>
 
-            <Border x:Name="QueuePanel" Grid.Row="2" Grid.ColumnSpan="3" Background="{StaticResource SurfaceBrush}" Margin="8,3"
+            <Border x:Name="QueuePanel" Grid.Row="2" Grid.ColumnSpan="3" Background="{DynamicResource SurfaceBrush}" Margin="8,3"
                     Visibility="Collapsed"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="7,4">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
@@ -234,7 +234,7 @@
                                 <GridViewColumn x:Name="QueueSourceColumn" Header="Source" DisplayMemberBinding="{Binding Source}" Width="220" />
                                 <GridViewColumn x:Name="QueueDestinationColumn" Header="Destination" DisplayMemberBinding="{Binding Destination}" Width="220" />
                                 <GridViewColumn x:Name="QueueProgressColumn" Header="Progress" Width="210"><GridViewColumn.CellTemplate><DataTemplate>
-                                    <Grid Margin="3,2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}" Height="18" Background="{StaticResource WindowBrush}" Foreground="{StaticResource AccentBrush}"/>
+                                    <Grid Margin="3,2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}" Height="18" Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource AccentBrush}"/>
                                         <TextBlock Text="{Binding ProgressDisplay}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
                                     </Grid>
                                 </DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
@@ -249,15 +249,15 @@
                               ToolTip="Drag to resize the connection log">
                 <primitives:Thumb.Template><ControlTemplate TargetType="{x:Type primitives:Thumb}">
                     <Grid Background="Transparent"><Border Height="2" Margin="80,0" VerticalAlignment="Center"
-                                                          Background="{StaticResource BorderBrush}" CornerRadius="1"/></Grid>
+                                                          Background="{DynamicResource BorderBrush}" CornerRadius="1"/></Grid>
                 </ControlTemplate></primitives:Thumb.Template>
             </primitives:Thumb>
 
-            <Border x:Name="LogPanel" Grid.Row="4" Grid.ColumnSpan="3" Background="{StaticResource WindowBrush}" Margin="8,3,8,8"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+            <Border x:Name="LogPanel" Grid.Row="4" Grid.ColumnSpan="3" Background="{DynamicResource WindowBrush}" Margin="8,3,8,8"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                 <DockPanel>
                     <Grid DockPanel.Dock="Top" Margin="10,4">
-                        <TextBlock Text="CONNECTION LOG · FTP COMMANDS AND SERVER REPLIES" Foreground="{StaticResource MutedTextBrush}"
+                        <TextBlock Text="CONNECTION LOG · FTP COMMANDS AND SERVER REPLIES" Foreground="{DynamicResource MutedTextBrush}"
                                    FontWeight="SemiBold" VerticalAlignment="Center" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button Content="Copy" Padding="8,2" Margin="3,0" Click="CopyLog_Click" />
@@ -267,7 +267,7 @@
                     <TextBox x:Name="LogText" IsReadOnly="True" AcceptsReturn="True" BorderThickness="0"
                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                              TextWrapping="NoWrap"
-                             FontFamily="Cascadia Mono, Consolas" />
+                             FontFamily="{DynamicResource AppMonospaceFontFamily}" />
                 </DockPanel>
             </Border>
         </Grid>

@@ -10,5 +10,6 @@ public partial class AboutWindow : Window
         InitializeComponent();
         VersionText.Text = $"Version {UpdateCheckService.CurrentVersion}";
     }
+    private void Changelog_Click(object sender, RoutedEventArgs e) => new ChangelogWindow { Owner = this }.ShowDialog();
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 }

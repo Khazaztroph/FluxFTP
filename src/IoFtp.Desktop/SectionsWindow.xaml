@@ -3,10 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Sections" Width="1300" Height="620" MinWidth="950" MinHeight="440"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
-        Background="{StaticResource WindowBrush}" Foreground="{StaticResource TextBrush}">
-    <DockPanel Margin="14" Background="{StaticResource WindowBrush}">
-        <Border DockPanel.Dock="Top" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="12,8" Margin="0,0,0,8">
-            <Grid><TextBlock Text="SECTIONS" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"/><TextBlock Text="Default setup imported from ioFTPD" HorizontalAlignment="Right" Foreground="{StaticResource MutedTextBrush}"/></Grid>
+        Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource TextBrush}">
+    <DockPanel Margin="14" Background="{DynamicResource WindowBrush}">
+        <Border DockPanel.Dock="Top" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="12,8" Margin="0,0,0,8">
+            <Grid><TextBlock Text="SECTIONS" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/><TextBlock Text="Default setup imported from ioFTPD" HorizontalAlignment="Right" Foreground="{DynamicResource MutedTextBrush}"/></Grid>
         </Border>
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Content="Test precheck" Click="TestPrecheck_Click"/><Button Content="Add" Click="Add_Click"/><Button Content="Remove" Click="Remove_Click"/><Button Content="Save" Click="Save_Click"/><Button Content="Close" Click="Close_Click"/>

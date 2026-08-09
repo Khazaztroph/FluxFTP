@@ -2,6 +2,24 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.44 — 2026-08-09
+
+### Added
+
+- Added a Themes tab to Global Settings with configurable interface colors, UI and monospace fonts, and font size.
+- Added live theme preview, default reset, and JSON theme import/export using `.flux-theme.json` files.
+- Added a Changelog button and an integrated release-history window.
+- Added a bundled OpenSSL compatibility backend for FTPS servers that cannot negotiate successfully with Windows Schannel.
+- Added a per-site option to use the OpenSSL TLS backend directly for glFTPD compatibility.
+
+### Fixed
+
+- Added automatic TLS fallback from Schannel TLS 1.2/1.3 to Schannel TLS 1.2 and then OpenSSL while keeping TLS 1.0/1.1 disabled.
+- Self-signed glFTPD and DrFTPD certificates can now be accepted through the existing per-site `Trust invalid TLS certificate` setting.
+- DrFTPD FTPS login now authenticates with `USER/PASS` before sending `PBSZ` and `PROT`, matching servers that reject data-protection commands before login.
+- Servers that reject `PROT P` can continue with an encrypted control channel and a clear `PROT C` data channel.
+- Failed TLS handshakes and certificate validation no longer leave plaintext control streams available to send an invalid unencrypted `QUIT` command.
+
 ## 1.0.43 — 2026-08-08
 
 ### Fixed

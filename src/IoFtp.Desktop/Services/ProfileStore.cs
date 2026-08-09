@@ -73,6 +73,7 @@ internal sealed class ProfileStore
             Write(text, "Affils", options.Affils);
             Write(text, "FxpProtection", options.FxpProtection);
             Write(text, "FxpDataRole", options.FxpDataRole);
+            Write(text, "UseOpenSslTls", options.UseOpenSslTls);
             Write(text, "ProxyMode", profile.Proxy is null ? "Inherit" : profile.Proxy.Type == ProxyType.None ? "None" : "Custom");
             if (profile.Proxy is not null)
             {
@@ -107,7 +108,8 @@ internal sealed class ProfileStore
                 Bool(values, "ForceBinaryMode", true), Int(values, "MaxIdleSeconds", 60),
                 Get(values, "BlockTransfersFrom"), Get(values, "BlockTransfersTo"), Bool(values, "SecureFileListings", true), Bool(values, "NeedsPret"), Bool(values, "CeprSupported"), Bool(values, "UseXdupe"), Get(values, "Affils"),
                 EnumValue(values, "FxpProtection", FxpProtectionMode.AutoSecure),
-                EnumValue(values, "FxpDataRole", FxpDataRole.Auto));
+                EnumValue(values, "FxpDataRole", FxpDataRole.Auto),
+                Bool(values, "UseOpenSslTls"));
             var proxyMode = Get(values, "ProxyMode", "Inherit");
             ProxyConfiguration? proxy = proxyMode.Equals("Inherit", StringComparison.OrdinalIgnoreCase) ? null
                 : proxyMode.Equals("None", StringComparison.OrdinalIgnoreCase) ? new ProxyConfiguration(ProxyType.None)
