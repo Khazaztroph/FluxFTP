@@ -254,7 +254,7 @@ public sealed class FtpRemoteSession : IRemoteSession
             (string Host, int Port) sourceAdvertised;
             if (_profile!.EffectiveOptions.CeprSupported)
             {
-                sourcePassive = await MeasureFxpStageAsync("EPSV", () => CommandAsync("EPSV", cancellationToken));
+                sourcePassive = await MeasureFxpStageAsync("EPSV", () => FxpCommandAsync("EPSV", cancellationToken));
                 if (sourcePassive.Code == 229)
                     sourceAdvertised = ParseExtendedPassiveEndpoint(sourcePassive.Message, GetControlPeerHost(), true);
                 else
@@ -262,14 +262,14 @@ public sealed class FtpRemoteSession : IRemoteSession
                     // CEPR may be enabled for a bouncer while the currently selected
                     // endpoint does not implement EPSV. Fall back without sacrificing
                     // the otherwise valid PASV/PORT FXP route.
-                    sourcePassive = await MeasureFxpStageAsync("PASV", () => CommandAsync("PASV", cancellationToken));
+                    sourcePassive = await MeasureFxpStageAsync("PASV", () => FxpCommandAsync("PASV", cancellationToken));
                     EnsureSuccess(sourcePassive, 227);
                     sourceAdvertised = ParsePassiveEndpoint(sourcePassive.Message);
                 }
             }
             else
             {
-                sourcePassive = await MeasureFxpStageAsync("PASV", () => CommandAsync("PASV", cancellationToken));
+                sourcePassive = await MeasureFxpStageAsync("PASV", () => FxpCommandAsync("PASV", cancellationToken));
                 EnsureSuccess(sourcePassive, 227);
                 sourceAdvertised = ParsePassiveEndpoint(sourcePassive.Message);
             }
@@ -283,7 +283,7 @@ public sealed class FtpRemoteSession : IRemoteSession
         (string Host, int Port) advertised;
         if (destination._profile!.EffectiveOptions.CeprSupported)
         {
-            passive = await MeasureFxpStageAsync("EPSV", () => destination.CommandAsync("EPSV", cancellationToken));
+            passive = await MeasureFxpStageAsync("EPSV", () => destination.FxpCommandAsync("EPSV", cancellationToken));
             if (passive.Code == 229)
                 advertised = ParseExtendedPassiveEndpoint(passive.Message, destination.GetControlPeerHost(), true);
             else
@@ -293,26 +293,26 @@ public sealed class FtpRemoteSession : IRemoteSession
                 // preferring CPSV before falling all the way back to PASV/SSCN.
                 if (secureFxp && destination.Capabilities.Contains("CPSV"))
                 {
-                    passive = await MeasureFxpStageAsync("CPSV", () => destination.CommandAsync("CPSV", cancellationToken));
+                    passive = await MeasureFxpStageAsync("CPSV", () => destination.FxpCommandAsync("CPSV", cancellationToken));
                     usedCpsv = passive.Code == 227;
                 }
                 if (!usedCpsv)
-                    passive = await MeasureFxpStageAsync("PASV", () => destination.CommandAsync("PASV", cancellationToken));
+                    passive = await MeasureFxpStageAsync("PASV", () => destination.FxpCommandAsync("PASV", cancellationToken));
                 EnsureSuccess(passive, 227);
                 advertised = ParsePassiveEndpoint(passive.Message);
             }
         }
         else if (secureFxp && destination.Capabilities.Contains("CPSV"))
         {
-            passive = await MeasureFxpStageAsync("CPSV", () => destination.CommandAsync("CPSV", cancellationToken));
+            passive = await MeasureFxpStageAsync("CPSV", () => destination.FxpCommandAsync("CPSV", cancellationToken));
             usedCpsv = passive.Code == 227;
-            if (!usedCpsv) passive = await MeasureFxpStageAsync("PASV", () => destination.CommandAsync("PASV", cancellationToken));
+            if (!usedCpsv) passive = await MeasureFxpStageAsync("PASV", () => destination.FxpCommandAsync("PASV", cancellationToken));
             EnsureSuccess(passive, 227);
             advertised = ParsePassiveEndpoint(passive.Message);
         }
         else
         {
-            passive = await MeasureFxpStageAsync("PASV", () => destination.CommandAsync("PASV", cancellationToken));
+            passive = await MeasureFxpStageAsync("PASV", () => destination.FxpCommandAsync("PASV", cancellationToken));
             EnsureSuccess(passive, 227);
             advertised = ParsePassiveEndpoint(passive.Message);
         }
@@ -323,14 +323,14 @@ public sealed class FtpRemoteSession : IRemoteSession
         {
             // CPSV makes the passive destination the TLS client for this transfer;
             // the active source must remain in its default TLS server role.
-            if (Capabilities.Contains("SSCN")) EnsureSuccess(await CommandAsync("SSCN OFF", cancellationToken), 200);
+            if (Capabilities.Contains("SSCN")) EnsureSuccess(await FxpCommandAsync("SSCN OFF", cancellationToken), 200);
             LastFxpNegotiation = "CPSV";
         }
         else if (secureFxp)
         {
             var secureReplies = await MeasureFxpStageAsync("SSCN", async () => await Task.WhenAll(
-                CommandAsync("SSCN ON", cancellationToken),
-                destination.CommandAsync("SSCN OFF", cancellationToken)));
+                FxpCommandAsync("SSCN ON", cancellationToken),
+                destination.FxpCommandAsync("SSCN OFF", cancellationToken)));
             var secureClient = secureReplies[0];
             if (secureClient.Code is < 200 or >= 300)
                 throw new FtpCommandException(secureClient.Code, secureClient.Message);
@@ -374,7 +374,7 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     private async Task<TransferStart> StartTransferCommandAsync(string command, CancellationToken cancellationToken)
     {
-        var response = await CommandAsync(command, cancellationToken);
+        var response = await FxpCommandAsync(command, cancellationToken);
         // Some SSCN implementations acknowledge the selected client/server TLS
         // role asynchronously. That acknowledgement can arrive immediately before
         // the transfer reply even though the STOR/RETR command is already active.
@@ -422,13 +422,13 @@ public sealed class FtpRemoteSession : IRemoteSession
         {
             if (!activeSession.Capabilities.Contains("EPRT"))
                 throw new NotSupportedException("IPv6 FXP requires EPRT support on the active server.");
-            EnsureSuccess(await activeSession.CommandAsync($"EPRT |2|{address}|{advertised.Port}|", cancellationToken), 200);
+            EnsureSuccess(await activeSession.FxpCommandAsync($"EPRT |2|{address}|{advertised.Port}|", cancellationToken), 200);
             return;
         }
         if (address.AddressFamily != AddressFamily.InterNetwork)
             throw new NotSupportedException("The passive FXP server returned an unsupported address family.");
         var bytes = address.GetAddressBytes();
-        EnsureSuccess(await activeSession.CommandAsync(
+        EnsureSuccess(await activeSession.FxpCommandAsync(
             $"PORT {string.Join(',', bytes)},{advertised.Port / 256},{advertised.Port % 256}", cancellationToken), 200);
     }
 
@@ -913,7 +913,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     private async Task PrepareDataCommandAsync(string command, CancellationToken cancellationToken)
     {
         if (_profile?.EffectiveOptions.NeedsPret != true) return;
-        var response = await CommandAsync($"PRET {command}", cancellationToken);
+        var response = await FxpCommandAsync($"PRET {command}", cancellationToken);
         EnsureSuccess(response, 200);
     }
 
@@ -1089,6 +1089,18 @@ public sealed class FtpRemoteSession : IRemoteSession
         ProtocolMessage?.Invoke($"> {RedactCommand(command)}");
         await _writer!.WriteLineAsync(command.AsMemory(), cancellationToken);
         return await ReadResponseAsync(cancellationToken);
+    }
+
+    private async Task<FtpResponse> FxpCommandAsync(string command, CancellationToken cancellationToken)
+    {
+        var response = await CommandAsync(command, cancellationToken);
+        var skippedCwdReplies = 0;
+        while (response.Code == 250 && LooksLikeDelayedCwdReply(response.Message) && skippedCwdReplies++ < 4)
+        {
+            ProtocolMessage?.Invoke($"< Ignoring delayed ioFTPD CWD event reply before {RedactCommand(command)}.");
+            response = await ReadResponseAsync(cancellationToken);
+        }
+        return response;
     }
 
     private async Task<FtpResponse> ReadResponseAsync(CancellationToken cancellationToken)

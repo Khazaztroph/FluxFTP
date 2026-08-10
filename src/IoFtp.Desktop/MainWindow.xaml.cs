@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     private string _rightSortProperty = "Name";
     private ListSortDirection _leftSortDirection = ListSortDirection.Ascending;
     private ListSortDirection _rightSortDirection = ListSortDirection.Ascending;
+    private string _queueSortProperty = "";
+    private ListSortDirection _queueSortDirection = ListSortDirection.Ascending;
     private Point _dragStart;
     private ListViewItem? _preservedDragItem;
     private bool _dragStarted;
@@ -123,12 +125,14 @@ public partial class MainWindow : Window
                     var modified = isDirectory
                         ? Directory.GetLastWriteTime(path)
                         : File.GetLastWriteTime(path);
-                    var size = isDirectory ? "Folder" : FormatSize(new FileInfo(path).Length);
-                    return new LocalEntryView(Path.GetFileName(path), size, modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), "", false, path, isDirectory);
+                    var sizeBytes = isDirectory ? 0 : new FileInfo(path).Length;
+                    var size = isDirectory ? "Folder" : FormatSize(sizeBytes);
+                    return new LocalEntryView(Path.GetFileName(path), size, modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), "", false, path, isDirectory, sizeBytes, modified);
                 })
                 .OrderByDescending(entry => entry.IsDirectory)
                 .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
+            ApplyCurrentSort(LocalList, _leftSortProperty, _leftSortDirection, LeftNameHeader, LeftSizeHeader, LeftModifiedHeader);
             _localDirectory = fullDirectory;
             LocalPath.Text = fullDirectory;
             SelectCurrentDrive(LeftDrives, fullDirectory);
@@ -348,7 +352,8 @@ public partial class MainWindow : Window
         if (LeftMode.SelectedIndex != 1 || _leftRemoteSession?.IsConnected != true) { MessageBox.Show("Connect Remote first.", "Commands"); return; }
         var selectedItem = LocalList.SelectedItem as LocalEntryView;
         var selected = selectedItem?.FullPath ?? _leftRemoteDirectory;
-        new CommandsWindow(_leftRemoteSession, _leftProfile?.Name ?? "Remote", selected, selectedItem?.IsDirectory ?? false, () => NavigateLeftRemoteAsync(_leftRemoteDirectory), RunScriptsAsync) { Owner = this }.Show();
+        var selectedDirectories = LocalList.SelectedItems.Cast<LocalEntryView>().Where(item => item.IsDirectory).Select(item => item.FullPath).ToList();
+        new CommandsWindow(_leftRemoteSession, _leftProfile?.Name ?? "Remote", selected, selectedItem?.IsDirectory ?? false, () => NavigateLeftRemoteAsync(_leftRemoteDirectory), RunScriptsAsync, selectedDirectories) { Owner = this }.Show();
     }
 
     private void CommandsRight_Click(object sender, RoutedEventArgs e)
@@ -356,7 +361,8 @@ public partial class MainWindow : Window
         if (RightMode.SelectedIndex != 1 || _remoteSession?.IsConnected != true) { MessageBox.Show("Connect Remote first.", "Commands"); return; }
         var selectedItem = RemoteList.SelectedItem as RemoteEntryView;
         var selected = selectedItem?.FullPath ?? _remoteDirectory;
-        new CommandsWindow(_remoteSession, _rightProfile?.Name ?? "Remote", selected, selectedItem?.IsDirectory ?? false, () => NavigateRemoteAsync(_remoteDirectory), RunScriptsAsync) { Owner = this }.Show();
+        var selectedDirectories = RemoteList.SelectedItems.Cast<RemoteEntryView>().Where(item => item.IsDirectory).Select(item => item.FullPath).ToList();
+        new CommandsWindow(_remoteSession, _rightProfile?.Name ?? "Remote", selected, selectedItem?.IsDirectory ?? false, () => NavigateRemoteAsync(_remoteDirectory), RunScriptsAsync, selectedDirectories) { Owner = this }.Show();
     }
 
     private void BookmarksLeft_Click(object sender, RoutedEventArgs e)
@@ -444,17 +450,23 @@ public partial class MainWindow : Window
         LocalList.ItemsSource = entries.Select(entry => new LocalEntryView(entry.Name,
             entry.IsDirectory ? "Folder" : entry.Size is { } size ? FormatSize(size) : "—",
             entry.ModifiedAt?.LocalDateTime.ToString("yyyy-MM-dd HH:mm") ?? "—", entry.Attributes,
-            NukeDetector.DetectName(entry.Name).Display, NukeDetector.DetectName(entry.Name).IsNuked, entry.FullPath, entry.IsDirectory))
+            NukeDetector.DetectName(entry.Name).Display, NukeDetector.DetectName(entry.Name).IsNuked, entry.FullPath, entry.IsDirectory,
+            entry.Size ?? 0, entry.ModifiedAt?.LocalDateTime ?? DateTime.MinValue))
             .OrderByDescending(entry => entry.IsDirectory).ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        ApplyCurrentSort(LocalList, _leftSortProperty, _leftSortDirection, LeftNameHeader, LeftSizeHeader, LeftModifiedHeader);
     }
 
     private void LeftHeader_Click(object sender, RoutedEventArgs e) =>
         SortList(LocalList, (GridViewColumnHeader)sender, ref _leftSortProperty, ref _leftSortDirection,
-            LeftNameHeader, LeftModifiedHeader);
+            LeftNameHeader, LeftSizeHeader, LeftModifiedHeader);
 
     private void RightHeader_Click(object sender, RoutedEventArgs e) =>
         SortList(RemoteList, (GridViewColumnHeader)sender, ref _rightSortProperty, ref _rightSortDirection,
-            RightNameHeader, RightModifiedHeader);
+            RightNameHeader, RightSizeHeader, RightModifiedHeader);
+
+    private void QueueHeader_Click(object sender, RoutedEventArgs e) =>
+        SortList(QueueList, (GridViewColumnHeader)sender, ref _queueSortProperty, ref _queueSortDirection,
+            QueueStateHeader, QueueNameHeader, QueueSourceHeader, QueueDestinationHeader, QueueProgressHeader);
 
     private void FileList_SizeChanged(object sender, SizeChangedEventArgs e)
     {
@@ -501,13 +513,26 @@ public partial class MainWindow : Window
         currentDirection = currentProperty == property && currentDirection == ListSortDirection.Ascending
             ? ListSortDirection.Descending : ListSortDirection.Ascending;
         currentProperty = property;
+        ApplyCurrentSort(list, currentProperty, currentDirection, headers);
+    }
+
+    private static void ApplyCurrentSort(ListView list, string property, ListSortDirection direction,
+        params GridViewColumnHeader[] headers)
+    {
+        if (string.IsNullOrWhiteSpace(property) || list.ItemsSource is null) return;
         var view = CollectionViewSource.GetDefaultView(list.ItemsSource);
         view.SortDescriptions.Clear();
-        view.SortDescriptions.Add(new SortDescription(property, currentDirection));
+        view.SortDescriptions.Add(new SortDescription(property, direction));
         foreach (var item in headers)
         {
-            var label = item.Tag?.ToString() is "Modified" or "DisplayModified" ? "Modified" : "Name";
-            item.Content = item == header ? $"{label} {(currentDirection == ListSortDirection.Ascending ? "▲" : "▼")}" : label;
+            var label = item.Tag?.ToString() switch
+            {
+                "SortModified" => "Modified",
+                "SortSize" => "Size",
+                "ProgressPercent" => "Progress",
+                var value => value ?? ""
+            };
+            item.Content = item.Tag?.ToString() == property ? $"{label} {(direction == ListSortDirection.Ascending ? "▲" : "▼")}" : label;
         }
     }
 
@@ -537,8 +562,10 @@ public partial class MainWindow : Window
             RemoteList.ItemsSource = Directory.EnumerateFileSystemEntries(full).Select(path =>
             {
                 var folder = Directory.Exists(path); var modified = folder ? Directory.GetLastWriteTime(path) : File.GetLastWriteTime(path);
-                return new RemoteEntryView(Path.GetFileName(path), folder ? "Folder" : FormatSize(new FileInfo(path).Length), modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), "", false, path, folder);
+                var sizeBytes = folder ? 0 : new FileInfo(path).Length;
+                return new RemoteEntryView(Path.GetFileName(path), folder ? "Folder" : FormatSize(sizeBytes), modified.ToString("yyyy-MM-dd HH:mm"), File.GetAttributes(path).ToString(), "", false, path, folder, sizeBytes, modified);
             }).OrderByDescending(item => item.IsDirectory).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            ApplyCurrentSort(RemoteList, _rightSortProperty, _rightSortDirection, RightNameHeader, RightSizeHeader, RightModifiedHeader);
             _rightLocalDirectory = full; RemotePath.Text = full; SelectCurrentDrive(RightDrives, full);
             CommitNavigation(false, previous, full);
         }
@@ -596,10 +623,13 @@ public partial class MainWindow : Window
             NukeDetector.DetectName(entry.Name).Display,
             NukeDetector.DetectName(entry.Name).IsNuked,
             entry.FullPath,
-            entry.IsDirectory))
+            entry.IsDirectory,
+            entry.Size ?? 0,
+            entry.ModifiedAt?.LocalDateTime ?? DateTime.MinValue))
             .OrderByDescending(entry => entry.IsDirectory)
             .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+        ApplyCurrentSort(RemoteList, _rightSortProperty, _rightSortDirection, RightNameHeader, RightSizeHeader, RightModifiedHeader);
     }
 
     private async Task NavigateRemoteAsync(string path)
@@ -2976,8 +3006,8 @@ public partial class MainWindow : Window
 
     private static string RemoteLeaf(string path) => path.TrimEnd('/').Split('/').LastOrDefault() ?? path;
 
-    private sealed record LocalEntryView(string Name, string Size, string Modified, string Attributes, string Status, bool IsNuked, string FullPath, bool IsDirectory);
-    private sealed record RemoteEntryView(string Name, string DisplaySize, string DisplayModified, string Attributes, string Status, bool IsNuked, string FullPath, bool IsDirectory);
+    private sealed record LocalEntryView(string Name, string Size, string Modified, string Attributes, string Status, bool IsNuked, string FullPath, bool IsDirectory, long SortSize, DateTime SortModified);
+    private sealed record RemoteEntryView(string Name, string DisplaySize, string DisplayModified, string Attributes, string Status, bool IsNuked, string FullPath, bool IsDirectory, long SortSize, DateTime SortModified);
 
     private enum TransferDirection { Download, Upload, UploadToLeft, DownloadFromLeft, RelayLeftToRight, RelayRightToLeft, LocalCopy, ApiDownload, ApiFxp }
     private sealed record QuickSiteChoice(string Label, ConnectionProfile? Profile)

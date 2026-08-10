@@ -131,8 +131,8 @@
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn x:Name="LeftNameColumn" DisplayMemberBinding="{Binding Name}" Width="270"><GridViewColumn.Header><GridViewColumnHeader x:Name="LeftNameHeader" Content="Name" Tag="Name" Click="LeftHeader_Click"/></GridViewColumn.Header></GridViewColumn>
-                                <GridViewColumn Header="Size" DisplayMemberBinding="{Binding Size}" Width="90" />
-                                <GridViewColumn DisplayMemberBinding="{Binding Modified}" Width="150"><GridViewColumn.Header><GridViewColumnHeader x:Name="LeftModifiedHeader" Content="Modified" Tag="Modified" Click="LeftHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                                <GridViewColumn DisplayMemberBinding="{Binding Size}" Width="90"><GridViewColumn.Header><GridViewColumnHeader x:Name="LeftSizeHeader" Content="Size" Tag="SortSize" Click="LeftHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                                <GridViewColumn DisplayMemberBinding="{Binding Modified}" Width="150"><GridViewColumn.Header><GridViewColumnHeader x:Name="LeftModifiedHeader" Content="Modified" Tag="SortModified" Click="LeftHeader_Click"/></GridViewColumn.Header></GridViewColumn>
                                 <GridViewColumn Header="Attributes" DisplayMemberBinding="{Binding Attributes}" Width="110" />
                                 <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status}" Width="150" />
                             </GridView>
@@ -191,8 +191,8 @@
                         </ContextMenu></ListView.ContextMenu>
                         <ListView.View><GridView>
                             <GridViewColumn x:Name="RightNameColumn" DisplayMemberBinding="{Binding Name}" Width="270"><GridViewColumn.Header><GridViewColumnHeader x:Name="RightNameHeader" Content="Name" Tag="Name" Click="RightHeader_Click"/></GridViewColumn.Header></GridViewColumn>
-                            <GridViewColumn Header="Size" DisplayMemberBinding="{Binding DisplaySize}" Width="90"/>
-                            <GridViewColumn DisplayMemberBinding="{Binding DisplayModified}" Width="150"><GridViewColumn.Header><GridViewColumnHeader x:Name="RightModifiedHeader" Content="Modified" Tag="DisplayModified" Click="RightHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                            <GridViewColumn DisplayMemberBinding="{Binding DisplaySize}" Width="90"><GridViewColumn.Header><GridViewColumnHeader x:Name="RightSizeHeader" Content="Size" Tag="SortSize" Click="RightHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                            <GridViewColumn DisplayMemberBinding="{Binding DisplayModified}" Width="150"><GridViewColumn.Header><GridViewColumnHeader x:Name="RightModifiedHeader" Content="Modified" Tag="SortModified" Click="RightHeader_Click"/></GridViewColumn.Header></GridViewColumn>
                             <GridViewColumn Header="Attributes" DisplayMemberBinding="{Binding Attributes}" Width="110"/>
                             <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status}" Width="150"/>
                         </GridView></ListView.View>
@@ -231,11 +231,11 @@
                         <ListView.ContextMenu><ContextMenu><MenuItem Header="Remove job" Click="RemoveQueueJob_Click"/></ContextMenu></ListView.ContextMenu>
                         <ListView.View>
                             <GridView>
-                                <GridViewColumn x:Name="QueueStateColumn" Header="State" DisplayMemberBinding="{Binding State}" Width="82" />
-                                <GridViewColumn x:Name="QueueNameColumn" Header="Name" DisplayMemberBinding="{Binding Name}" Width="240" />
-                                <GridViewColumn x:Name="QueueSourceColumn" Header="Source" DisplayMemberBinding="{Binding Source}" Width="220" />
-                                <GridViewColumn x:Name="QueueDestinationColumn" Header="Destination" DisplayMemberBinding="{Binding Destination}" Width="220" />
-                                <GridViewColumn x:Name="QueueProgressColumn" Header="Progress" Width="210"><GridViewColumn.CellTemplate><DataTemplate>
+                                <GridViewColumn x:Name="QueueStateColumn" DisplayMemberBinding="{Binding State}" Width="82"><GridViewColumn.Header><GridViewColumnHeader x:Name="QueueStateHeader" Content="State" Tag="State" Click="QueueHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                                <GridViewColumn x:Name="QueueNameColumn" DisplayMemberBinding="{Binding Name}" Width="240"><GridViewColumn.Header><GridViewColumnHeader x:Name="QueueNameHeader" Content="Name" Tag="Name" Click="QueueHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                                <GridViewColumn x:Name="QueueSourceColumn" DisplayMemberBinding="{Binding Source}" Width="220"><GridViewColumn.Header><GridViewColumnHeader x:Name="QueueSourceHeader" Content="Source" Tag="Source" Click="QueueHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                                <GridViewColumn x:Name="QueueDestinationColumn" DisplayMemberBinding="{Binding Destination}" Width="220"><GridViewColumn.Header><GridViewColumnHeader x:Name="QueueDestinationHeader" Content="Destination" Tag="Destination" Click="QueueHeader_Click"/></GridViewColumn.Header></GridViewColumn>
+                                <GridViewColumn x:Name="QueueProgressColumn" Width="210"><GridViewColumn.Header><GridViewColumnHeader x:Name="QueueProgressHeader" Content="Progress" Tag="ProgressPercent" Click="QueueHeader_Click"/></GridViewColumn.Header><GridViewColumn.CellTemplate><DataTemplate>
                                     <Grid Margin="3,2"><ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}" Height="18" Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource AccentBrush}"/>
                                         <TextBlock Text="{Binding ProgressDisplay}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" Foreground="White" FontWeight="SemiBold"/>
                                     </Grid>

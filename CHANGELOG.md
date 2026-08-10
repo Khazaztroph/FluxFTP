@@ -2,6 +2,21 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.47 — 2026-08-11
+
+### Added
+
+- Added batch PRE for multiple selected release folders, executed sequentially with one section selection.
+- Added sortable Size columns in both panes and sorting for every Transfer Queue column.
+- Added protection against accidentally PREing the section directory itself.
+
+### Fixed
+
+- Selected Name, Size or Modified sorting and its direction now persist while navigating between local or remote directories.
+- Size and modification sorting now use numeric byte counts and actual timestamps instead of formatted display text.
+- ioFTPD delayed CWD event replies such as `This looks like a PRE` no longer desynchronize subsequent FXP commands.
+- SITE PRE commands now allow up to ten minutes for large releases while ordinary commands retain their shorter timeout.
+
 ## 1.0.46 — 2026-08-09
 
 ### Removed

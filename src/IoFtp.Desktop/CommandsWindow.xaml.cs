@@ -14,15 +14,19 @@ public partial class CommandsWindow : Window
     private readonly string _siteName;
     private readonly string _selectedPath;
     private readonly bool _selectedIsDirectory;
+    private readonly IReadOnlyList<string> _selectedDirectories;
     private readonly Func<Task>? _refreshDirectory;
     private readonly Func<string, Dictionary<string, string>, bool, Task>? _scriptEvent;
     private readonly List<CommandPreset> _presets;
 
-    public CommandsWindow(IRemoteSession session, string siteName, string selectedPath, bool selectedIsDirectory, Func<Task>? refreshDirectory = null, Func<string, Dictionary<string, string>, bool, Task>? scriptEvent = null)
+    public CommandsWindow(IRemoteSession session, string siteName, string selectedPath, bool selectedIsDirectory, Func<Task>? refreshDirectory = null, Func<string, Dictionary<string, string>, bool, Task>? scriptEvent = null, IReadOnlyList<string>? selectedDirectories = null)
     {
         InitializeComponent(); _session = session; _siteName = siteName; _selectedPath = selectedPath; _selectedIsDirectory = selectedIsDirectory; _refreshDirectory = refreshDirectory; _scriptEvent = scriptEvent;
+        _selectedDirectories = selectedDirectories?.Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
         var selectedName = Path.GetFileName(selectedPath.TrimEnd('/'));
-        SelectionText.Text = $"Site: {siteName}    Selected: {(selectedPath.Length == 0 ? "none" : selectedPath)}";
+        SelectionText.Text = _selectedDirectories.Count > 1
+            ? $"Site: {siteName}    Selected: {_selectedDirectories.Count} release folders"
+            : $"Site: {siteName}    Selected: {(selectedPath.Length == 0 ? "none" : selectedPath)}";
         _presets =
         [
             new("ioFTPD / PRE selected release", ["SITE PRE %d[Pre Type: ie. mp3, divx] %f", "LIST"]),
@@ -82,22 +86,37 @@ public partial class CommandsWindow : Window
     {
         try
         {
-            IsEnabled = false; using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            IsEnabled = false;
             var commands = await ExpandCommandsAsync(CommandBox.Text);
+            var work = new List<(string Command, string SelectedPath, bool IsDirectory)>();
             foreach (var command in commands)
             {
+                if (command.StartsWith("SITE PRE ", StringComparison.OrdinalIgnoreCase) && _selectedDirectories.Count > 1)
+                {
+                    var parts = command.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length < 3) throw new InvalidOperationException("SITE PRE requires a section.");
+                    work.AddRange(_selectedDirectories.Select(path =>
+                        ($"SITE PRE {parts[2]} {Path.GetFileName(path.TrimEnd('/'))}", path, true)));
+                }
+                else work.Add((command, _selectedPath, _selectedIsDirectory));
+            }
+            foreach (var item in work)
+            {
+                var command = item.Command;
                 if (command.Equals("LIST", StringComparison.OrdinalIgnoreCase))
                 { if (_refreshDirectory is not null) await _refreshDirectory(); continue; }
-                var runInsideSelection = _selectedIsDirectory && command.StartsWith("SITE PRE ", StringComparison.OrdinalIgnoreCase);
+                var runInsideSelection = item.IsDirectory && command.StartsWith("SITE PRE ", StringComparison.OrdinalIgnoreCase);
                 var preParts = command.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
-                var selectedName = Path.GetFileName(_selectedPath.TrimEnd('/'));
+                var selectedName = Path.GetFileName(item.SelectedPath.TrimEnd('/'));
                 var releaseName = preParts.Length > 3 ? preParts[3].Trim().TrimEnd('/') : selectedName;
-                var selectedParent = _selectedPath[..Math.Max(1, _selectedPath.TrimEnd('/').LastIndexOf('/'))];
+                var selectedParent = item.SelectedPath[..Math.Max(1, item.SelectedPath.TrimEnd('/').LastIndexOf('/'))];
                 var preWorkingDirectory = selectedParent;
                 var releasePath = $"{selectedParent.TrimEnd('/')}/{releaseName}";
                 var preVariables = new Dictionary<string, string> { ["site"] = SelectionText.Text, ["path"] = releasePath, ["name"] = releaseName, ["section"] = preParts.Length > 2 ? preParts[2] : "", ["status"] = "Starting" };
                 if (runInsideSelection && preParts.Length > 2)
                 {
+                    if (releaseName.Equals(preParts[2], StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException($"PRE blocked: '{releaseName}' appears to be the section folder itself. Open that folder and select its release directories instead.");
                     var validation = SectionReleaseValidator.Validate(preParts[2], preVariables["name"]);
                     if (!validation.Accepted && validation.Mode == SectionValidationMode.Block)
                         throw new InvalidOperationException($"PRE blocked: {validation.Message}");
@@ -111,11 +130,22 @@ public partial class CommandsWindow : Window
                 if (runInsideSelection && _scriptEvent is not null) await _scriptEvent("BeforePre", preVariables, false);
                 if (runInsideSelection)
                 {
-                    await _session.ExecuteCommandAsync($"CWD {preWorkingDirectory}", timeout.Token);
+                    using var cwdTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    try { await _session.ExecuteCommandAsync($"CWD {preWorkingDirectory}", cwdTimeout.Token); }
+                    catch (OperationCanceledException) when (cwdTimeout.IsCancellationRequested)
+                    { throw new TimeoutException("CWD timed out after 30 seconds."); }
                     OutputBox.AppendText($"Working directory: {preWorkingDirectory}{Environment.NewLine}");
                 }
                 RemoteCommandResult result;
-                result = await _session.ExecuteCommandAsync(command, timeout.Token);
+                var commandTimeout = command.StartsWith("SITE PRE ", StringComparison.OrdinalIgnoreCase)
+                    ? TimeSpan.FromMinutes(10)
+                    : TimeSpan.FromSeconds(30);
+                using (var timeout = new CancellationTokenSource(commandTimeout))
+                {
+                    try { result = await _session.ExecuteCommandAsync(command, timeout.Token); }
+                    catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+                    { throw new TimeoutException($"{SafeDisplay(command)} timed out after {commandTimeout.TotalSeconds:0} seconds."); }
+                }
                 OutputBox.AppendText($"> {SafeDisplay(command)}{Environment.NewLine}{result.Message}{Environment.NewLine}{Environment.NewLine}");
                 if (runInsideSelection && _scriptEvent is not null) { preVariables["status"] = "Completed"; await _scriptEvent("AfterPre", preVariables, true); }
             }
