@@ -29,6 +29,8 @@ public partial class CommandsWindow : Window
             : $"Site: {siteName}    Selected: {(selectedPath.Length == 0 ? "none" : selectedPath)}";
         _presets =
         [
+            new("Raw command", [""]),
+            new("ioFTPD / IRC", ["SITE IRC"]),
             new("ioFTPD / PRE selected release", ["SITE PRE %d[Pre Type: ie. mp3, divx] %f", "LIST"]),
             new("ioFTPD/glFTPD / TAGLINE", ["SITE TAGLINE %d[New Tagline:]"]),
             new("ioFTPD/glFTPD / Show NFO", ["&window", "SITE NFO"]),
@@ -39,8 +41,7 @@ public partial class CommandsWindow : Window
             new("ioFTPD/glFTPD / Nukes", ["SITE NUKES"]),
             new("ioFTPD/glFTPD / Latest uploads", ["SITE NEW"]),
             new("ioFTPD/glFTPD / SITE HELP", ["SITE HELP"]),
-            .. CreateGlFtpdPresets(),
-            new("Raw command", [""])
+            .. CreateGlFtpdPresets()
         ];
         PresetBox.ItemsSource = _presets; PresetBox.SelectedIndex = 0;
     }
@@ -74,7 +75,7 @@ public partial class CommandsWindow : Window
                 .Select(match => match.Groups[1].Value).Where(name => !ignored.Contains(name) && !int.TryParse(name, out _)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var existing = _presets.Select(preset => preset.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var name in names)
-                if (existing.Add($"ioFTPD / {name}")) _presets.Insert(_presets.Count - 1, new CommandPreset($"ioFTPD / {name}", [$"SITE {name}"], true));
+                if (existing.Add($"ioFTPD / {name}")) _presets.Add(new CommandPreset($"ioFTPD / {name}", [$"SITE {name}"], true));
             PresetBox.Items.Refresh(); OutputBox.AppendText($"Loaded {names.Count} commands reported by SITE HELP.{Environment.NewLine}{Environment.NewLine}");
         }
         catch (Exception exception) { OutputBox.AppendText($"SITE HELP failed: {exception.Message}{Environment.NewLine}"); }

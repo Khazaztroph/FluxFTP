@@ -2,6 +2,17 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.48 — 2026-08-28
+
+### Added
+
+- Added an `ioFTPD / IRC` command preset for sending `SITE IRC`.
+
+### Changed
+
+- Moved `Raw command` to the first position and made it the default selection in Server Commands.
+- Commands discovered through `SITE HELP` are appended after the built-in presets.
+
 ## 1.0.47 — 2026-08-11
 
 ### Added
