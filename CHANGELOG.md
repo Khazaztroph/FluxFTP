@@ -2,6 +2,14 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.49 — 2026-08-29
+
+### Fixed
+
+- Priority List ranks are now carried into the transfer engine, so prioritized file patterns are selected before scoreboard size scoring.
+- Files within the same priority rank now retain queue order and use natural numeric name ordering, preventing file 8 from starting before file 2.
+- Normal FTP, FXP, downloads, uploads and local transfers now share the same deterministic priority scheduling.
+
 ## 1.0.48 — 2026-08-28
 
 ### Added

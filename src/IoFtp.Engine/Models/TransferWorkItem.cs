@@ -14,7 +14,8 @@ public sealed record TransferWorkItem(
     int JobPriority = 0,
     double TargetProgress = 0,
     double UploadedByUserRatio = 0,
-    DateTimeOffset? QueuedAt = null);
+    DateTimeOffset? QueuedAt = null,
+    int FilePriorityRank = int.MaxValue);
 
 public sealed record TransferWorkStatus(
     TransferWorkItem Item,

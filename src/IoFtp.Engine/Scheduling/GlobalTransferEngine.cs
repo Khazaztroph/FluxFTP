@@ -103,7 +103,9 @@ public sealed class GlobalTransferEngine : IAsyncDisposable
         {
             var now = DateTimeOffset.UtcNow;
             return _work.Values.Select(work => new TransferWorkStatus(work.Item, work.State, Score(work.Item, now), work.Error))
-                .OrderByDescending(status => status.Score).ToList();
+                .OrderBy(status => status.Item.FilePriorityRank)
+                .ThenBy(status => status.Item.QueuedAt ?? DateTimeOffset.MaxValue)
+                .ThenByDescending(status => status.Score).ToList();
         }
     }
 
@@ -125,7 +127,10 @@ public sealed class GlobalTransferEngine : IAsyncDisposable
                 _pumpScheduled = false;
                 var now = DateTimeOffset.UtcNow;
                 selected = _work.Values.Where(work => work.State == TransferWorkState.Queued && IsAllowed(work.Item))
-                    .OrderByDescending(work => Score(work.Item, now)).FirstOrDefault(work => CanReserve(work.Item));
+                    .OrderBy(work => work.Item.FilePriorityRank)
+                    .ThenBy(work => work.Item.QueuedAt ?? DateTimeOffset.MaxValue)
+                    .ThenByDescending(work => Score(work.Item, now))
+                    .FirstOrDefault(work => CanReserve(work.Item));
                 if (selected is null) return Task.CompletedTask;
                 reservation = Reserve(selected.Item);
                 selected.State = TransferWorkState.Running;

@@ -1082,7 +1082,7 @@ public partial class MainWindow : Window
                 }
             }
             if (startImmediately) await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
-            foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, NaturalNameComparer.Instance))
             {
                 var queued = AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0);
                 if (startImmediately) Schedule(queued);
@@ -1277,7 +1277,7 @@ public partial class MainWindow : Window
                 }
             }
             if (startImmediately) await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
-            foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, NaturalNameComparer.Instance))
             {
                 var queued = AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0);
                 if (startImmediately) Schedule(queued);
@@ -1318,7 +1318,7 @@ public partial class MainWindow : Window
                 }
             }
             if (startImmediately) await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
-            foreach (var file in files.OrderBy(file => PriorityRank(file.File.Name)).ThenBy(file => file.File.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var file in files.OrderBy(file => PriorityRank(file.File.Name)).ThenBy(file => file.File.Name, NaturalNameComparer.Instance))
             {
                 var queued = AddQueue(file.File.Name, file.File.FullName, file.Destination, direction, file.File.Length);
                 if (startImmediately) Schedule(queued);
@@ -1550,7 +1550,8 @@ public partial class MainWindow : Window
         entry.State = "Queued";
         entry.QueuedAt ??= DateTimeOffset.Now;
         _engine.Enqueue([new TransferWorkItem(entry.Id, entry.Id, entry.Name, sourceSite, destinationSite,
-            entry.Source, entry.Destination, entry.TotalBytes, QueuedAt: DateTimeOffset.UtcNow)]);
+            entry.Source, entry.Destination, entry.TotalBytes,
+            QueuedAt: entry.QueuedAt.Value.ToUniversalTime(), FilePriorityRank: PriorityRank(entry.Name))]);
         SaveQueue(); UpdateQueueStatus();
     }
 
@@ -3008,6 +3009,47 @@ public partial class MainWindow : Window
 
     private sealed record LocalEntryView(string Name, string Size, string Modified, string Attributes, string Status, bool IsNuked, string FullPath, bool IsDirectory, long SortSize, DateTime SortModified);
     private sealed record RemoteEntryView(string Name, string DisplaySize, string DisplayModified, string Attributes, string Status, bool IsNuked, string FullPath, bool IsDirectory, long SortSize, DateTime SortModified);
+
+    private sealed class NaturalNameComparer : IComparer<string>
+    {
+        public static NaturalNameComparer Instance { get; } = new();
+
+        public int Compare(string? left, string? right)
+        {
+            if (ReferenceEquals(left, right)) return 0;
+            if (left is null) return -1;
+            if (right is null) return 1;
+            var leftIndex = 0;
+            var rightIndex = 0;
+            while (leftIndex < left.Length && rightIndex < right.Length)
+            {
+                var leftDigit = char.IsDigit(left[leftIndex]);
+                var rightDigit = char.IsDigit(right[rightIndex]);
+                if (leftDigit && rightDigit)
+                {
+                    var leftEnd = leftIndex;
+                    var rightEnd = rightIndex;
+                    while (leftEnd < left.Length && char.IsDigit(left[leftEnd])) leftEnd++;
+                    while (rightEnd < right.Length && char.IsDigit(right[rightEnd])) rightEnd++;
+                    var leftNumber = left.AsSpan(leftIndex, leftEnd - leftIndex).TrimStart('0');
+                    var rightNumber = right.AsSpan(rightIndex, rightEnd - rightIndex).TrimStart('0');
+                    var lengthComparison = leftNumber.Length.CompareTo(rightNumber.Length);
+                    if (lengthComparison != 0) return lengthComparison;
+                    var numberComparison = leftNumber.CompareTo(rightNumber, StringComparison.Ordinal);
+                    if (numberComparison != 0) return numberComparison;
+                    leftIndex = leftEnd;
+                    rightIndex = rightEnd;
+                    continue;
+                }
+
+                var characterComparison = char.ToUpperInvariant(left[leftIndex]).CompareTo(char.ToUpperInvariant(right[rightIndex]));
+                if (characterComparison != 0) return characterComparison;
+                leftIndex++;
+                rightIndex++;
+            }
+            return left.Length.CompareTo(right.Length);
+        }
+    }
 
     private enum TransferDirection { Download, Upload, UploadToLeft, DownloadFromLeft, RelayLeftToRight, RelayRightToLeft, LocalCopy, ApiDownload, ApiFxp }
     private sealed record QuickSiteChoice(string Label, ConnectionProfile? Profile)
