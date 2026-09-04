@@ -2,6 +2,14 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.50 — 2026-09-04
+
+### Fixed
+
+- FTP servers advertising RFC 2640 UTF-8 now receive pathname commands using UTF-8 after `OPTS UTF8 ON` negotiation.
+- Legacy servers such as ioFTPD that do not advertise UTF-8 now use Windows-1252 control-channel compatibility instead of replacing typographic characters with `?`.
+- Downloads, uploads and FXP transfers now preserve filenames containing typographic apostrophes and other non-ASCII characters supported by the server encoding.
+
 ## 1.0.49 — 2026-08-29
 
 ### Fixed

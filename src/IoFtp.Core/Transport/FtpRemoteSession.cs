@@ -25,6 +25,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     private int _loggedDataTlsDetails;
     private bool _tls12Only;
     private bool _useOpenSslFallback;
+    private Encoding _controlEncoding = Encoding.ASCII;
     private SftpRemoteSession? _sftpSession;
 
     /// <summary>Raw FTP control-channel traffic. PASS arguments are always masked.</summary>
@@ -79,6 +80,7 @@ public sealed class FtpRemoteSession : IRemoteSession
     {
         _lastTlsPolicyErrors = SslPolicyErrors.None;
         _loggedDataTlsDetails = 0;
+        _controlEncoding = Encoding.ASCII;
 
         if (profile.Protocol == TransferProtocol.Sftp)
         {
@@ -182,6 +184,36 @@ public sealed class FtpRemoteSession : IRemoteSession
             }
         }
         Capabilities = capabilities;
+
+        // FTP control channels historically use ASCII, but RFC 2640 servers
+        // advertising UTF8 expect path arguments to be encoded as UTF-8. Keep
+        // the greeting/login phase ASCII-compatible, then upgrade the command
+        // reader/writer before any directory or transfer commands are issued.
+        // This preserves characters such as typographic apostrophes in RETR,
+        // STOR, CWD and other pathname-bearing commands.
+        if (capabilities.Contains("UTF8"))
+        {
+            var utf8Options = await CommandAsync("OPTS UTF8 ON", cancellationToken);
+            if (utf8Options.Code is >= 200 and < 300)
+                ProtocolMessage?.Invoke("< FTP control encoding: UTF-8 enabled (OPTS UTF8 ON accepted).");
+            else
+                ProtocolMessage?.Invoke($"< FTP control encoding: UTF-8 enabled (advertised by FEAT; OPTS returned {utf8Options.Code}).");
+
+            _controlEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            RecreateTextStreams();
+        }
+        else
+        {
+            // Older Windows FTP servers such as ioFTPD commonly use the ANSI
+            // Windows code page on the control channel without advertising
+            // RFC 2640 UTF8. ASCII would replace characters such as U+2019
+            // with '?', producing a different RETR/STOR pathname.
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            _controlEncoding = Encoding.GetEncoding(1252,
+                EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback);
+            RecreateTextStreams();
+            ProtocolMessage?.Invoke("< FTP control encoding: Windows-1252 compatibility mode (UTF8 not advertised).");
+        }
     }
 
     private static async Task<(TcpClient Client, SiteEndpoint Endpoint)> ConnectToFirstAddressAsync(ConnectionProfile profile, CancellationToken cancellationToken)
@@ -1080,8 +1112,17 @@ public sealed class FtpRemoteSession : IRemoteSession
 
     private void CreateTextStreams()
     {
-        _reader = new StreamReader(_controlStream!, Encoding.ASCII, false, 1024, true);
-        _writer = new StreamWriter(_controlStream!, Encoding.ASCII, 1024, true) { NewLine = "\r\n", AutoFlush = true };
+        _reader = new StreamReader(_controlStream!, _controlEncoding, false, 1024, true);
+        _writer = new StreamWriter(_controlStream!, _controlEncoding, 1024, true) { NewLine = "\r\n", AutoFlush = true };
+    }
+
+    private void RecreateTextStreams()
+    {
+        _writer?.Dispose();
+        _reader?.Dispose();
+        _writer = null;
+        _reader = null;
+        CreateTextStreams();
     }
 
     private async Task<FtpResponse> CommandAsync(string command, CancellationToken cancellationToken)
