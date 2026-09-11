@@ -136,6 +136,7 @@ public partial class MainWindow : Window
             _localDirectory = fullDirectory;
             LocalPath.Text = fullDirectory;
             SelectCurrentDrive(LeftDrives, fullDirectory);
+            UpdateDriveBarSelection(LeftDriveBar, fullDirectory);
             CommitNavigation(true, previous, fullDirectory);
         }
         catch (Exception exception)
@@ -384,6 +385,7 @@ public partial class MainWindow : Window
         if (!IsLoaded) return;
         _leftBackHistory.Clear(); _leftForwardHistory.Clear(); _leftRecentPaths.Clear(); _leftHistoryNavigation = false;
         LeftDrives.Visibility = LeftMode.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LeftDriveBarBorder.Visibility = LeftMode.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (LeftMode.SelectedIndex == 0) { LeftSiteTitle.Text = "LOCAL"; ReloadLocalDrives(); LoadLocalDirectory(_localDirectory); }
         else
         {
@@ -400,6 +402,7 @@ public partial class MainWindow : Window
         if (!IsLoaded) return;
         _rightBackHistory.Clear(); _rightForwardHistory.Clear(); _rightRecentPaths.Clear(); _rightHistoryNavigation = false;
         RightDrives.Visibility = RightMode.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RightDriveBarBorder.Visibility = RightMode.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (RightMode.SelectedIndex == 0) { RemoteSiteTitle.Text = "LOCAL"; ReloadLocalDrives(); LoadRightLocalDirectory(_rightLocalDirectory); }
         else
         {
@@ -567,6 +570,7 @@ public partial class MainWindow : Window
             }).OrderByDescending(item => item.IsDirectory).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             ApplyCurrentSort(RemoteList, _rightSortProperty, _rightSortDirection, RightNameHeader, RightSizeHeader, RightModifiedHeader);
             _rightLocalDirectory = full; RemotePath.Text = full; SelectCurrentDrive(RightDrives, full);
+            UpdateDriveBarSelection(RightDriveBar, full);
             CommitNavigation(false, previous, full);
         }
         catch (Exception exception) { LogText.AppendText($"{Environment.NewLine}Local browse error: {exception.Message}"); }
@@ -587,8 +591,12 @@ public partial class MainWindow : Window
             var drives = DriveInfo.GetDrives().Select(drive => drive.RootDirectory.FullName).ToList();
             LeftDrives.ItemsSource = drives;
             RightDrives.ItemsSource = drives;
+            PopulateDriveBar(LeftDriveBar, drives, true);
+            PopulateDriveBar(RightDriveBar, drives, false);
             SelectCurrentDrive(LeftDrives, _localDirectory);
             SelectCurrentDrive(RightDrives, _rightLocalDirectory);
+            UpdateDriveBarSelection(LeftDriveBar, _localDirectory);
+            UpdateDriveBarSelection(RightDriveBar, _rightLocalDirectory);
         }
         finally { _reloadingDrives = false; }
     }
@@ -597,6 +605,55 @@ public partial class MainWindow : Window
     {
         var root = Path.GetPathRoot(Path.GetFullPath(path));
         if (!string.IsNullOrWhiteSpace(root)) combo.SelectedItem = root;
+    }
+
+    private void PopulateDriveBar(StackPanel bar, IEnumerable<string> drives, bool left)
+    {
+        bar.Children.Clear();
+        foreach (var root in drives)
+        {
+            var drive = new DriveInfo(root);
+            var label = drive.Name.TrimEnd(Path.DirectorySeparatorChar);
+            var details = drive.IsReady
+                ? $"{drive.VolumeLabel}\n{FormatSize(drive.AvailableFreeSpace)} free of {FormatSize(drive.TotalSize)}"
+                : "Drive is not ready";
+            var button = new Button
+            {
+                Content = label,
+                Tag = root,
+                ToolTip = details,
+                MinWidth = 48,
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 4, 0),
+                FontWeight = FontWeights.SemiBold
+            };
+            button.Click += left ? LeftDriveButton_Click : RightDriveButton_Click;
+            bar.Children.Add(button);
+        }
+    }
+
+    private static void UpdateDriveBarSelection(StackPanel bar, string path)
+    {
+        var activeRoot = Path.GetPathRoot(Path.GetFullPath(path));
+        foreach (var button in bar.Children.OfType<Button>())
+        {
+            var active = string.Equals(button.Tag as string, activeRoot, StringComparison.OrdinalIgnoreCase);
+            button.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+            button.SetResourceReference(BackgroundProperty, active ? "AccentBrush" : "SurfaceRaisedBrush");
+            button.SetResourceReference(ForegroundProperty, active ? "WindowBrush" : "TextBrush");
+        }
+    }
+
+    private void LeftDriveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string drive } && LeftMode.SelectedIndex == 0)
+            LoadLocalDirectory(drive);
+    }
+
+    private void RightDriveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string drive } && RightMode.SelectedIndex == 0)
+            LoadRightLocalDirectory(drive);
     }
 
     private void LeftDrives_SelectionChanged(object sender, SelectionChangedEventArgs e)

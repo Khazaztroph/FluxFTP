@@ -2,6 +2,19 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.51 — 2026-09-11
+
+### Added
+
+- Added a Commander-inspired LOCAL toolbar to both panes.
+- The selected local drive is shown as a single highlighted button with volume name, free space and total size in its tooltip.
+- Added quick LOCAL actions for creating folders, renaming, deleting and refreshing.
+
+### Changed
+
+- Local drive switching remains in the existing drive list, avoiding duplicate buttons for every available drive.
+- The LOCAL toolbar is hidden automatically whenever a pane is switched to Remote mode.
+
 ## 1.0.50 — 2026-09-04
 
 ### Fixed

@@ -97,6 +97,19 @@
                         <ComboBox x:Name="LeftMode" SelectionChanged="LeftMode_Changed" Width="105" Margin="3"><ComboBoxItem Content="Local"/><ComboBoxItem Content="Remote" IsSelected="True"/></ComboBox>
                         <TextBlock x:Name="LeftSiteTitle" Text="REMOTE SITE" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="6,3" VerticalAlignment="Center"/>
                     </DockPanel>
+                    <Border x:Name="LeftDriveBarBorder" DockPanel.Dock="Top" Visibility="Collapsed"
+                            Margin="8,3,8,2" Padding="4,3" Background="{DynamicResource WindowBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Content="New folder" Click="CreateFolderLeft_Click" Padding="8,3" Margin="3,0,0,0" ToolTip="Create a new folder"/>
+                                <Button Content="Rename" Click="RenameLeft_Click" Padding="8,3" Margin="3,0,0,0" ToolTip="Rename selected item"/>
+                                <Button Content="Delete" Click="DeleteLeft_Click" Padding="8,3" Margin="3,0,0,0" ToolTip="Delete selected items"/>
+                                <Button Content="Refresh" Click="RefreshLeft_Click" Padding="8,3" Margin="3,0,0,0" ToolTip="Refresh (F5)"/>
+                            </StackPanel>
+                            <StackPanel x:Name="LeftDriveBar" Orientation="Horizontal"/>
+                        </DockPanel>
+                    </Border>
                     <DockPanel DockPanel.Dock="Top" Margin="8,2,8,8">
                         <Button DockPanel.Dock="Right" Content="Up" Click="LocalUp_Click" Margin="5,0,0,0" Padding="10,4"/>
                         <ComboBox x:Name="LeftBookmarks" DockPanel.Dock="Right" Width="150" Margin="5,0,0,0"
@@ -158,6 +171,19 @@
                         <ComboBox x:Name="RightMode" SelectionChanged="RightMode_Changed" Width="105" Margin="3"><ComboBoxItem Content="Local"/><ComboBoxItem Content="Remote" IsSelected="True"/></ComboBox>
                         <TextBlock x:Name="RemoteSiteTitle" Text="REMOTE SITE" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" Margin="3" VerticalAlignment="Center"/>
                     </DockPanel>
+                    <Border x:Name="RightDriveBarBorder" DockPanel.Dock="Top" Visibility="Collapsed"
+                            Margin="8,3,8,2" Padding="4,3" Background="{DynamicResource WindowBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Content="New folder" Click="CreateFolderRight_Click" Padding="8,3" Margin="3,0,0,0" ToolTip="Create a new folder"/>
+                                <Button Content="Rename" Click="RenameRight_Click" Padding="8,3" Margin="3,0,0,0" ToolTip="Rename selected item"/>
+                                <Button Content="Delete" Click="DeleteRight_Click" Padding="8,3" Margin="3,0,0,0" ToolTip="Delete selected items"/>
+                                <Button Content="Refresh" Click="RefreshRight_Click" Padding="8,3" Margin="3,0,0,0" ToolTip="Refresh (F5)"/>
+                            </StackPanel>
+                            <StackPanel x:Name="RightDriveBar" Orientation="Horizontal"/>
+                        </DockPanel>
+                    </Border>
                     <DockPanel DockPanel.Dock="Top" Margin="8,2,8,8">
                         <Button DockPanel.Dock="Right" Content="Up" Click="RemoteUp_Click" Margin="5,0,0,0" Padding="10,4"/>
                         <ComboBox x:Name="RightBookmarks" DockPanel.Dock="Right" Width="150" Margin="5,0,0,0"
