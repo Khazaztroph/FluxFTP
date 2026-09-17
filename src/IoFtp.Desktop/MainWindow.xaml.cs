@@ -1139,11 +1139,9 @@ public partial class MainWindow : Window
                 }
             }
             if (startImmediately) await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
-            foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, NaturalNameComparer.Instance))
-            {
-                var queued = AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0);
-                if (startImmediately) Schedule(queued);
-            }
+            var queuedEntries = files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, NaturalNameComparer.Instance)
+                .Select(file => AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0, persist: false)).ToList();
+            if (startImmediately) ScheduleBatch(queuedEntries); else { SaveQueue(); UpdateQueueStatus(); }
             LogText.AppendText($"{Environment.NewLine}Queued remote folder {sourceRoot}: {fileCount} files.");
         }
         catch (Exception exception)
@@ -1334,11 +1332,9 @@ public partial class MainWindow : Window
                 }
             }
             if (startImmediately) await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
-            foreach (var file in files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, NaturalNameComparer.Instance))
-            {
-                var queued = AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0);
-                if (startImmediately) Schedule(queued);
-            }
+            var queuedEntries = files.OrderBy(file => PriorityRank(file.Entry.Name)).ThenBy(file => file.Entry.Name, NaturalNameComparer.Instance)
+                .Select(file => AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, direction, file.Entry.Size ?? 0, persist: false)).ToList();
+            if (startImmediately) ScheduleBatch(queuedEntries); else { SaveQueue(); UpdateQueueStatus(); }
             LogText.AppendText($"{Environment.NewLine}Queued remote folder for local download {sourceRoot}: {files.Count} files.");
             LogText.ScrollToEnd();
             if (direction == TransferDirection.Download) LoadLocalDirectory(_localDirectory); else LoadRightLocalDirectory(_rightLocalDirectory);
@@ -1375,11 +1371,9 @@ public partial class MainWindow : Window
                 }
             }
             if (startImmediately) await WarmWorkersForDirectionAsync(direction, files.Count, timeout.Token);
-            foreach (var file in files.OrderBy(file => PriorityRank(file.File.Name)).ThenBy(file => file.File.Name, NaturalNameComparer.Instance))
-            {
-                var queued = AddQueue(file.File.Name, file.File.FullName, file.Destination, direction, file.File.Length);
-                if (startImmediately) Schedule(queued);
-            }
+            var queuedEntries = files.OrderBy(file => PriorityRank(file.File.Name)).ThenBy(file => file.File.Name, NaturalNameComparer.Instance)
+                .Select(file => AddQueue(file.File.Name, file.File.FullName, file.Destination, direction, file.File.Length, persist: false)).ToList();
+            if (startImmediately) ScheduleBatch(queuedEntries); else { SaveQueue(); UpdateQueueStatus(); }
             LogText.AppendText($"{Environment.NewLine}Queued local folder {sourceRoot}: {files.Count} files.");
         }
         catch (Exception exception)
@@ -1594,21 +1588,31 @@ public partial class MainWindow : Window
         }
     }
 
-    private QueueEntryView AddQueue(string name, string source, string destination, TransferDirection direction, long totalBytes = 0, Guid? sourceProfileId = null, Guid? destinationProfileId = null)
+    private QueueEntryView AddQueue(string name, string source, string destination, TransferDirection direction, long totalBytes = 0, Guid? sourceProfileId = null, Guid? destinationProfileId = null, bool persist = true)
     {
-        var entry = new QueueEntryView(name, source, destination, direction, totalBytes: totalBytes) { SourceProfileId = sourceProfileId, DestinationProfileId = destinationProfileId, QueuedAt = DateTimeOffset.Now }; _queue.Add(entry); SaveQueue(); UpdateQueueStatus(); return entry;
+        var entry = new QueueEntryView(name, source, destination, direction, totalBytes: totalBytes) { SourceProfileId = sourceProfileId, DestinationProfileId = destinationProfileId, QueuedAt = DateTimeOffset.Now };
+        _queue.Add(entry);
+        if (persist) { SaveQueue(); UpdateQueueStatus(); }
+        return entry;
     }
 
-    private void Schedule(QueueEntryView entry)
+    private void Schedule(QueueEntryView entry) => ScheduleBatch([entry]);
+
+    private void ScheduleBatch(IEnumerable<QueueEntryView> entries)
     {
-        var (sourceSite, destinationSite) = SitesFor(entry.Direction);
-        sourceSite ??= entry.SourceProfileId;
-        destinationSite ??= entry.DestinationProfileId;
-        entry.State = "Queued";
-        entry.QueuedAt ??= DateTimeOffset.Now;
-        _engine.Enqueue([new TransferWorkItem(entry.Id, entry.Id, entry.Name, sourceSite, destinationSite,
-            entry.Source, entry.Destination, entry.TotalBytes,
-            QueuedAt: entry.QueuedAt.Value.ToUniversalTime(), FilePriorityRank: PriorityRank(entry.Name))]);
+        var work = new List<TransferWorkItem>();
+        foreach (var entry in entries)
+        {
+            var (sourceSite, destinationSite) = SitesFor(entry.Direction);
+            sourceSite ??= entry.SourceProfileId;
+            destinationSite ??= entry.DestinationProfileId;
+            entry.State = "Queued";
+            entry.QueuedAt ??= DateTimeOffset.Now;
+            work.Add(new TransferWorkItem(entry.Id, entry.Id, entry.Name, sourceSite, destinationSite,
+                entry.Source, entry.Destination, entry.TotalBytes,
+                QueuedAt: entry.QueuedAt.Value.ToUniversalTime(), FilePriorityRank: PriorityRank(entry.Name)));
+        }
+        if (work.Count > 0) _engine.Enqueue(work);
         SaveQueue(); UpdateQueueStatus();
     }
 
@@ -2471,9 +2475,10 @@ public partial class MainWindow : Window
     {
         Dispatcher.BeginInvoke(() =>
         {
+            var queueById = _queue.ToDictionary(item => item.Id);
             foreach (var status in _engine.Snapshot())
             {
-                var entry = _queue.FirstOrDefault(item => item.Id == status.Item.Id); if (entry is null) continue;
+                if (!queueById.TryGetValue(status.Item.Id, out var entry)) continue;
                 entry.State = status.State switch
                 {
                     TransferWorkState.Queued => "Queued", TransferWorkState.Running => "Transferring",
@@ -2527,11 +2532,10 @@ public partial class MainWindow : Window
     private void StartQueue_Click(object sender, RoutedEventArgs e)
     {
         var snapshot = _engine.Snapshot().ToDictionary(status => status.Item.Id);
-        foreach (var entry in _queue.Where(item => item.State is "Queued" or "Paused" or "Failed").ToList())
-        {
-            if (!snapshot.TryGetValue(entry.Id, out var status)) Schedule(entry);
-            else if (status.State is TransferWorkState.Paused or TransferWorkState.Failed) _engine.Resume(entry.Id);
-        }
+        var candidates = _queue.Where(item => item.State is "Queued" or "Paused" or "Failed").ToList();
+        ScheduleBatch(candidates.Where(entry => !snapshot.ContainsKey(entry.Id)));
+        _engine.Resume(candidates.Where(entry => snapshot.TryGetValue(entry.Id, out var status) &&
+            status.State is TransferWorkState.Paused or TransferWorkState.Failed).Select(entry => entry.Id));
         LogText.AppendText($"{Environment.NewLine}Transfer queue started.");
         LogText.ScrollToEnd();
     }
@@ -2965,14 +2969,13 @@ public partial class MainWindow : Window
             if (nuke.IsNuked) throw new InvalidOperationException($"Nuke detection blocked automated transfer: {item.FullPath} ({nuke.Display}).");
             apiFiles.Add((item, destination));
         }
-        foreach (var file in apiFiles)
-        {
-            var queuedEntry = AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, TransferDirection.ApiFxp,
-                file.Entry.Size ?? 0, sourceProfile.Id, destinationProfile.Id);
-            jobIds.Add(queuedEntry.Id);
-            Schedule(queuedEntry);
-            queued++;
-        }
+        var queuedEntries = apiFiles.OrderBy(file => PriorityRank(file.Entry.Name))
+            .ThenBy(file => file.Entry.Name, NaturalNameComparer.Instance)
+            .Select(file => AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, TransferDirection.ApiFxp,
+                file.Entry.Size ?? 0, sourceProfile.Id, destinationProfile.Id, persist: false)).ToList();
+        jobIds.AddRange(queuedEntries.Select(entry => entry.Id));
+        queued = queuedEntries.Count;
+        ScheduleBatch(queuedEntries);
         LogText.AppendText($"{Environment.NewLine}API queued FXP {request.Name}: {request.SrcSite} → {request.DstSite} ({queued} files)"); LogText.ScrollToEnd();
         return new ApiTransferStartResult(request.Name, "QUEUED", queued, request.SrcSite, request.DstSite, jobIds);
     });
@@ -3018,12 +3021,13 @@ public partial class MainWindow : Window
             if (nuke.IsNuked) throw new InvalidOperationException($"Nuke detection blocked automated download: {selected.FullPath} ({nuke.Display}).");
             downloadFiles.Add((selected, Path.Combine(localRoot, selected.Name)));
         }
-        foreach (var file in downloadFiles)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(file.Destination)!);
-            Schedule(AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, TransferDirection.ApiDownload, file.Entry.Size ?? 0, profile.Id));
-            queued++;
-        }
+        foreach (var file in downloadFiles) Directory.CreateDirectory(Path.GetDirectoryName(file.Destination)!);
+        var queuedEntries = downloadFiles.OrderBy(file => PriorityRank(file.Entry.Name))
+            .ThenBy(file => file.Entry.Name, NaturalNameComparer.Instance)
+            .Select(file => AddQueue(file.Entry.Name, file.Entry.FullPath, file.Destination, TransferDirection.ApiDownload,
+                file.Entry.Size ?? 0, profile.Id, persist: false)).ToList();
+        queued = queuedEntries.Count;
+        ScheduleBatch(queuedEntries);
         LogText.AppendText($"{Environment.NewLine}API queued {queued} download(s) from {profile.Name}: {remote}"); LogText.ScrollToEnd();
         return new { site = profile.Name, description = profile.Description, remote_path = remote, local_path = localRoot, queued, status = "QUEUED" };
     });

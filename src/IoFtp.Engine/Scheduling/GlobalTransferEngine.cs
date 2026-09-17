@@ -76,6 +76,21 @@ public sealed class GlobalTransferEngine : IAsyncDisposable
         RaiseStateChanged(); RequestPump();
     }
 
+    public void Resume(IEnumerable<Guid> workIds)
+    {
+        var ids = workIds.ToHashSet();
+        if (ids.Count == 0) return;
+        lock (_gate)
+            foreach (var work in _work.Where(pair => ids.Contains(pair.Key)).Select(pair => pair.Value))
+                if (work.State is TransferWorkState.Paused or TransferWorkState.Failed)
+                {
+                    work.State = TransferWorkState.Queued;
+                    work.Error = null;
+                }
+        RaiseStateChanged();
+        RequestPump();
+    }
+
     public void Remove(Guid workId)
     {
         lock (_gate)

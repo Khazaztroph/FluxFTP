@@ -2,6 +2,19 @@
 
 All notable FluxFTP changes are documented here.
 
+## 1.0.52 — 2026-09-17
+
+### Added
+
+- Manual and API-driven `SITE PRE` commands now classify server replies as success, dupe or failure.
+- The `/raw` API exposes duplicate PRE results separately while retaining them in `successes` for compatibility with existing RaceTrade and IRC integrations.
+
+### Fixed
+
+- Starting very large transfer queues now schedules work in a single batch instead of rewriting the complete queue file for every item.
+- RaceTrade/API FXP and download jobs now use the same batch scheduler, preventing large races from making the interface appear frozen before transfers begin.
+- Queue status synchronization now uses indexed lookups and batch resume operations, avoiding quadratic processing with thousands of files.
+
 ## 1.0.51 — 2026-09-11
 
 ### Added

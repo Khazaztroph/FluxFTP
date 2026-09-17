@@ -147,8 +147,16 @@ public partial class CommandsWindow : Window
                     catch (OperationCanceledException) when (timeout.IsCancellationRequested)
                     { throw new TimeoutException($"{SafeDisplay(command)} timed out after {commandTimeout.TotalSeconds:0} seconds."); }
                 }
-                OutputBox.AppendText($"> {SafeDisplay(command)}{Environment.NewLine}{result.Message}{Environment.NewLine}{Environment.NewLine}");
-                if (runInsideSelection && _scriptEvent is not null) { preVariables["status"] = "Completed"; await _scriptEvent("AfterPre", preVariables, true); }
+                var preOutcome = PreCommandResultClassifier.Classify(command, result.StatusCode, result.Message);
+                var outcomeLabel = PreCommandResultClassifier.IsPreCommand(command)
+                    ? $"[{preOutcome.ToString().ToUpperInvariant()}] "
+                    : string.Empty;
+                OutputBox.AppendText($"> {SafeDisplay(command)}{Environment.NewLine}{outcomeLabel}{result.Message}{Environment.NewLine}{Environment.NewLine}");
+                if (runInsideSelection && _scriptEvent is not null)
+                {
+                    preVariables["status"] = preOutcome.ToString();
+                    await _scriptEvent("AfterPre", preVariables, preOutcome != PreCommandOutcome.Failed);
+                }
             }
             OutputBox.ScrollToEnd();
         }

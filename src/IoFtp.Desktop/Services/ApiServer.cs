@@ -207,13 +207,17 @@ internal sealed class ApiServer : IAsyncDisposable
             // mIRC parser consumes this indented structure line-by-line.
             var response = new
             {
-                failures = results.Where(result => result.Error is not null)
-                    .Select(result => new { name = result.Name, reason = result.Error }),
-                successes = results.Where(result => result.Error is null)
-                    .Select(result => new { name = result.Name, result = result.Result })
+                failures = results.Where(result => result.Error is not null || result.Outcome == "failed")
+                    .Select(result => new { name = result.Name, reason = result.Error ?? result.Result, status = "failed" }),
+                successes = results.Where(result => result.Error is null && result.Outcome != "failed")
+                    .Select(result => new { name = result.Name, result = result.Result, status = result.Outcome }),
+                dupes = results.Where(result => result.Error is null && result.Outcome == "dupe")
+                    .Select(result => new { name = result.Name, result = result.Result, status = "dupe" })
             };
             var json = JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
-            diagnosticLog?.Invoke($"API /raw completed: {results.Count(result => result.Error is null)} success, {results.Count(result => result.Error is not null)} failure, {Encoding.UTF8.GetByteCount(json)} bytes");
+            diagnosticLog?.Invoke($"API /raw completed: {results.Count(result => result.Error is null && result.Outcome == "success")} success, " +
+                $"{results.Count(result => result.Error is null && result.Outcome == "dupe")} dupe, " +
+                $"{results.Count(result => result.Error is not null || result.Outcome == "failed")} failure, {Encoding.UTF8.GetByteCount(json)} bytes");
             return Results.Text(json, "application/json");
         });
         _app.MapGet("/transferjobs", () => Results.Json(getJobs()));
@@ -472,7 +476,7 @@ internal sealed class ApiServer : IAsyncDisposable
         var results = new List<RawApiResult>();
         foreach (var name in names)
         {
-            var profile = FindSite(name); if (profile is null) { results.Add(new(name, "", null, "Site not found")); continue; }
+            var profile = FindSite(name); if (profile is null) { results.Add(new(name, "", null, "Site not found", "failed")); continue; }
             using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(request.Timeout ?? 10, 1, 300)));
             await using var session = new FtpRemoteSession();
             try
@@ -483,9 +487,11 @@ internal sealed class ApiServer : IAsyncDisposable
                 ValidateRawPre(request.Command);
                 var response = await session.ExecuteCommandAsync(request.Command ?? "", cancellation.Token);
                 var result = StripAnsi(response.Message).Trim();
-                results.Add(new(name, result.Length > 0 ? result : $"{response.StatusCode} Command successful", response.StatusCode, null));
+                var outcome = PreCommandResultClassifier.Classify(request.Command, response.StatusCode, result);
+                results.Add(new(name, result.Length > 0 ? result : $"{response.StatusCode} Command successful",
+                    response.StatusCode, null, outcome.ToString().ToLowerInvariant()));
             }
-            catch (Exception exception) { results.Add(new(name, "", null, exception.Message)); }
+            catch (Exception exception) { results.Add(new(name, "", null, exception.Message, "failed")); }
         }
         return results;
     }
@@ -574,7 +580,8 @@ internal sealed record RawApiResult(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("result")] string Result,
     [property: JsonPropertyName("code")] int? Code,
-    [property: JsonPropertyName("error")] string? Error);
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("outcome")] string Outcome = "success");
 
 internal sealed record ApiTransferRequest(
     [property: JsonPropertyName("src_site")] string? SrcSite = null,
